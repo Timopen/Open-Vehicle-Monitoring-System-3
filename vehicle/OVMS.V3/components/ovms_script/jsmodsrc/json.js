@@ -1,58 +1,48 @@
 /*
  * Module       : JSON (not compatible with the browser component!)
- * State        : preinstalled OVMS component
- * Use          : a) JSON.print(data);              -- output data as JSON, readable
- *                b) JSON.print(data, false);       -- …compact (without spacing/indentation)
- *                c) t = JSON.format(data);         -- format data as JSON string, readable
- *                d) t = JSON.format(data, false);  -- …compact (without spacing/indentation)
+ * State        : test/demo
+ * Install as   : /store/scripts/lib/JSON.js
+ * Load         : JSON = require("lib/JSON");
+ * Use          : JSON.print(object);
  */
 
-exports.format = function(obj, ind)
+exports.print = function(obj, ind)
   {
-  var res = '';
-  var type = (obj === null) ? "null" : typeof obj;
+  var type = typeof obj;
   if (type == "object" && Array.isArray(obj)) type = "array";
-  var sp = (ind !== false);
   if (!ind) ind = '';
 
   switch (type)
     {
     case "string":
-      res += '"' + obj.replace(/\"/g, '\\\"') + '"';
+      print('"' + obj.replace(/\"/g, '\\\"') + '"');
       break;
     case "array":
-      res += sp ? '[\n' : '[';
+      print('[\n');
       for (var i = 0; i < obj.length; i++)
         {
-        if (sp) res += (ind + '  ');
-        res += exports.format(obj[i], sp ? ind + '  ' : false);
-        if (i != obj.length-1) res += ',';
-        if (sp) res += '\n';
+        print(ind + '  ');
+        exports.print(obj[i], ind + '  ');
+        if (i != obj.length-1) print(',');
+        print('\n');
         }
-      res += ind + ']';
+      print(ind + ']');
       break;
     case "object":
-      res += sp ? '{\n' : '{';
+      print('{\n');
       var keys = Object.keys(obj);
       for (var i = 0; i < keys.length; i++)
         {
-        if (sp) res += ind + '  "' + keys[i] + '": ';
-        else res += '"' + keys[i] + '":';
-        res += exports.format(obj[keys[i]], sp ? ind + '  ' : false);
-        if (i != keys.length-1) res += ',';
-        if (sp) res += '\n';
+        print(ind + '  "' + keys[i] + '": ');
+        exports.print(obj[keys[i]], ind + '  ');
+        if (i != keys.length-1) print(',');
+        print('\n');
         }
-      res += ind + '}';
+      print(ind + '}');
       break;
     default:
-      res += '' + obj;
+      print(obj);
   }
 
-  if (sp && ind == '') res += '\n';
-  return res;
-  }
-
-exports.print = function(obj, ind)
-  {
-  print(exports.format(obj, ind));
+  if (ind == '') print('\n');
   }
