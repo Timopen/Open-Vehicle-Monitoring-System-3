@@ -92,7 +92,7 @@ class mcp2515 : public canbus
 
   public:
     esp_err_t Write(const CAN_frame_t* p_frame, TickType_t maxqueuewait=0);
-    bool AsynchronousInterruptHandler(CAN_frame_t* frame, bool * frameReceived);
+    bool RxCallback(CAN_frame_t* frame);
 
   public:
     void SetPowerMode(PowerMode powermode);
