@@ -45,9 +45,11 @@ static void MCP2515_isr(void *pvParameters)
   me->m_status.interrupts++;
 
   // we don't know the IRQ source and querying by SPI is too slow for an ISR,
-  // so we let AsynchronousInterruptHandler() figure out what to do. 
+  // so we let RxCallback() figure out what to do. Since we cannot at this point differentiate between rx/tx interrupts and other 
+  // interrupts, we let RxCallback() handle them all.
+
   CAN_queue_msg_t msg;
-  msg.type = CAN_asyncinterrupthandler;
+  msg.type = CAN_rxcallback;
   msg.body.bus = me;
 
   //send callback request to main CAN processor task
@@ -355,9 +357,9 @@ esp_err_t mcp2515::Write(const CAN_frame_t* p_frame, TickType_t maxqueuewait /*=
   return ESP_OK;
   }
 
-// This function serves as asynchronous interrupt handler for both rx and tx tasks as well as error states
-// Returns true if this function needs to be called again (another frame may need handling or all error interrupts are not yet handled)
-bool mcp2515::AsynchronousInterruptHandler(CAN_frame_t* frame, bool * frameReceived)
+// This function serves as interrupt handler for both rx and tx tasks
+// also, this is called again if previous invocation returned true (indicating received message) to check if other interrupts need clearing
+bool mcp2515::RxCallback(CAN_frame_t* frame)
   {
   uint8_t buf[16];
 
@@ -419,7 +421,6 @@ bool mcp2515::AsynchronousInterruptHandler(CAN_frame_t* frame, bool * frameRecei
     frame->FIR.B.DLC = p[4] & 0x0f;
 
     memcpy(&frame->data,p+5,8);
-    *frameReceived=true;
     }
 
   // handle other interrupts that came in at the same time:
@@ -461,7 +462,7 @@ bool mcp2515::AsynchronousInterruptHandler(CAN_frame_t* frame, bool * frameRecei
     uint8_t *p = m_spibus->spi_cmd(m_spi, buf, 2, 2, CMD_READ, REG_TEC);
     if ( (intstat & 0b10000000) && (p[0] > m_status.errors_tx) )
       {
-      ESP_LOGE(TAG, "AsynchronousInterruptHandler: error while sending frame. msgId 0x%x", tx_frame.MsgID);
+      ESP_LOGE(TAG, "RxCallback: error while sending frame. msgId 0x%x", tx_frame.MsgID);
       // send "tx failed" callback request to main CAN processor task
       CAN_queue_msg_t msg;
       msg.type = CAN_txfailedcallback;
@@ -490,8 +491,10 @@ bool mcp2515::AsynchronousInterruptHandler(CAN_frame_t* frame, bool * frameRecei
     m_spibus->spi_cmd(m_spi, buf, 0, 4, CMD_BITMODIFY, REG_CANINTF, intstat & 0b11100000, 0x00);
     }
 
-  // Read the interrupt pin status and if it's still active (low), require another interrupt handling iteration
-  return !gpio_get_level((gpio_num_t)m_intpin);
+  if(intflag & 0b00000011)   //  did we receive anything?
+    return true;
+  else
+    return false;
   }
 
 void mcp2515::SetPowerMode(PowerMode powermode)
