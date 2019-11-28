@@ -549,11 +549,6 @@ class OvmsMetricVector : public OvmsMetric
       SetModified(modified);
       }
 
-    uint32_t GetSize()
-      {
-      return m_value.size();
-      }
-
   protected:
     OvmsMutex m_mutex;
     std::vector<ElemType, Allocator> m_value;
@@ -611,15 +606,6 @@ class OvmsMetrics
       {
       OvmsMetricSet<ElemType> *m = (OvmsMetricSet<ElemType> *)Find(metric);
       if (m==NULL) m = new OvmsMetricSet<ElemType>(metric, autostale, units);
-      if (value)
-        m->SetValue(value);
-      return m;
-      }
-    template <typename ElemType>
-    OvmsMetricVector<ElemType> *InitVector(const char* metric, uint16_t autostale=0, const char* value=NULL, metric_unit_t units = Other)
-      {
-      OvmsMetricVector<ElemType> *m = (OvmsMetricVector<ElemType> *)Find(metric);
-      if (m==NULL) m = new OvmsMetricVector<ElemType>(metric, autostale, units);
       if (value)
         m->SetValue(value);
       return m;
