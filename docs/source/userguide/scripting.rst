@@ -16,7 +16,7 @@ Command scripts can also be stored in the /store/events/<eventname> directory st
 Note that the developer building firmware can optionally set the OVMS_DEV_SDCARDSCRIPTS build flag. If that is set, then the system will also check /sd/scripts and /sd/events for scripts.
 
 In addition to command scripts, more sophisticated scripting capabilities may be enabled if the JavaScript environment is enabled in the build. This is discussed in the next section of this guide.
-
+
 -------------
 JavaScripting
 -------------
@@ -262,15 +262,15 @@ OvmsCommand
 OvmsConfig
 ^^^^^^^^^^
 
-- ``array = OvmsConfig.Params()``
+- ``str = OvmsConfig.Params()``
     Returns the list of available configuration parameters.
-- ``array = OvmsMetrics.Instances(param)``
+- ``num = OvmsMetrics.Instances(param)``
     Returns the list of instances for a specific parameter.
-- ``string = OvmsMetrics.Get(param,instance,default)``
+- ``num = OvmsMetrics.Get(param,instance,default)``
     Returns the specified parameter/instance value.
-- ``OvmsMetrics.Set(param,instance,value)``
+- ``num = OvmsMetrics.Set(param,instance,value)``
     Sets the specified parameter/instance value.
-- ``OvmsMetrics.Delete(param,instance)``
+- ``num = OvmsMetrics.Delete(param,instance)``
     Deletes the specified parameter instance.
 
 OvmsEvents
