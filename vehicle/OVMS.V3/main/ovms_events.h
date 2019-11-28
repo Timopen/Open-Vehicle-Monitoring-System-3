@@ -39,9 +39,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
-#include "freertos/timers.h"
 #include "ovms_command.h"
-#include "ovms_mutex.h"
 
 typedef std::function<void(std::string,void*)> EventCallback;
 
@@ -83,8 +81,6 @@ typedef struct
   event_msg_t type;
   } event_queue_t;
 
-typedef std::list<TimerHandle_t> TimerList;
-
 class OvmsEvents
   {
   public:
@@ -94,8 +90,8 @@ class OvmsEvents
   public:
     void RegisterEvent(std::string caller, std::string event, EventCallback callback);
     void DeregisterEvent(std::string caller);
-    void SignalEvent(std::string event, void* data, event_signal_done_fn callback = NULL, uint32_t delay_ms = 0);
-    void SignalEvent(std::string event, void* data, size_t length, uint32_t delay_ms = 0);
+    void SignalEvent(std::string event, void* data, event_signal_done_fn callback = NULL);
+    void SignalEvent(std::string event, void* data, size_t length);
 
   public:
     void EventTask();
@@ -106,12 +102,7 @@ class OvmsEvents
     const EventMap& Map() { return m_map; }
 
   protected:
-    bool ScheduleEvent(event_queue_t* msg, uint32_t delay_ms);
-
-  protected:
     EventMap m_map;
-    TimerList m_timers;
-    OvmsMutex m_timers_mutex;
 
   public:
     bool m_trace;
