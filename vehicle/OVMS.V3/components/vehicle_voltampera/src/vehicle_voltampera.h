@@ -111,13 +111,9 @@ class OvmsVehicleVoltAmpera : public OvmsVehicle
     unsigned int m_candata_timer;
     unsigned int m_range_rated_km;
     unsigned int m_range_estimated_km;
-
-
-    canbus* p_swcan;    // Either "swcan" or "can3" bus, depending on which is connected to slow speed GMLAN bus
 #ifdef CONFIG_OVMS_COMP_EXTERNAL_SWCAN
-    swcan* p_swcan_if;  // Actual SWCAN interface with facilities to switch between normal and HVWUP modes
+    swcan* p_swcan;  
 #endif
-
     CanFrameCallback wakeup_frame_sent;
     unsigned int m_tx_retry_counter;
 
