@@ -27,18 +27,18 @@
 ; THE SOFTWARE.
 */
 
-#ifndef __OVMS_LED_H__
-#define __OVMS_LED_H__
+#ifndef __OVMS_SWCAN_LED_H__
+#define __OVMS_SWCAN_LED_H__
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/timers.h"
 
-class ovms_led
+class swcan_led
   {
 
   public:
-    ovms_led(const char * name, int pin, int defaultState=0 );
-    ~ovms_led();
+    swcan_led(const char * name, int pin, int defaultState=0 );
+    ~swcan_led();
 
     void Set( int state );
     void SetDefaultState( int defaultState );
@@ -55,7 +55,9 @@ class ovms_led
     int inter_burst_interval;
     int on_duration, off_duration;
     TimerHandle_t m_timer;
+
   };
 
-#endif //#ifndef __OVMS_LED_H__
+
+#endif //#ifndef __OVMS_SWCAN_LED_H__
 
