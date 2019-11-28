@@ -41,12 +41,6 @@
 #include <sstream>
 #include "ovms_malloc.h"
 
-#ifdef CONFIG_FREERTOS_UNICORE
-  #define CORE(n) (0)
-#else
-  #define CORE(n) (n)
-#endif
-
 extern uint32_t monotonictime;
 
 class ExternalRamAllocated

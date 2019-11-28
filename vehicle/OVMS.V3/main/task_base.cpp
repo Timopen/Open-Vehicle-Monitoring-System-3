@@ -31,7 +31,6 @@ static const char *TAG = "task_base";
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "ovms.h"
 #include "task_base.h"
 #include "ovms_module.h"
 
@@ -146,7 +145,7 @@ BaseType_t TaskBase::CreateTask(const char* name, int stack, UBaseType_t priorit
 
 BaseType_t TaskBase::CreateTaskPinned(const BaseType_t core, const char* name, int stack, UBaseType_t priority)
   {
-  BaseType_t task = xTaskCreatePinnedToCore(Task, name, stack, (void*)this, priority, &m_taskid, CORE(core));
+  BaseType_t task = xTaskCreatePinnedToCore(Task, name, stack, (void*)this, priority, &m_taskid, core);
   AddTaskToMap(m_taskid);
   return task;
   }
