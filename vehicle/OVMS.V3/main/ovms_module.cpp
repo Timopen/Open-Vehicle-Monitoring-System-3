@@ -936,15 +936,8 @@ bool module_factory_reset_yesno(OvmsWriter* writer, void* ctx, char ch)
 
 static void module_factory_reset(int verbosity, OvmsWriter* writer, OvmsCommand* cmd, int argc, const char* const* argv)
   {
-  if (argc == 1 && strcmp(argv[0], "-noconfirm") == 0)
-    {
-    module_perform_factoryreset(writer);
-    }
-  else
-    {
-    writer->printf("Reset configuration store to factory defaults, and lose all configuration data (y/n): ");
-    writer->RegisterInsertCallback(module_factory_reset_yesno, NULL);
-    }
+  writer->printf("Reset configuration store to factory defaults, and lose all configuration data (y/n): ");
+  writer->RegisterInsertCallback(module_factory_reset_yesno, NULL);
   }
 
 static void module_eventhandler(std::string event, void* data)
@@ -1033,7 +1026,7 @@ class OvmsModuleInit
     cmd_module->RegisterCommand("check","Check heap integrity",module_check);
     cmd_module->RegisterCommand("summary","Show module summary",module_summary);
     OvmsCommand* cmd_factory = cmd_module->RegisterCommand("factory","MODULE FACTORY framework");
-    cmd_factory->RegisterCommand("reset","Factory Reset module",module_factory_reset,"[-noconfirm]",0,1);
+    cmd_factory->RegisterCommand("reset","Factory Reset module",module_factory_reset);
     }
   } MyOvmsModuleInit  __attribute__ ((init_priority (5100)));
 
