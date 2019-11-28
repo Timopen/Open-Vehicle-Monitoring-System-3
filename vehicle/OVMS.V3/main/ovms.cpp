@@ -86,7 +86,7 @@ int ExternalRamAllocated::vasprintf(char** strp, const char* fmt, va_list ap)
   // determine required size:
   va_list apsz;
   va_copy(apsz, ap);
-  size = vsnprintf(NULL, 0, fmt, apsz);
+  size = vsnprintf(p, size, fmt, apsz);
   va_end(apsz);
 
   if (size < 0)
@@ -148,7 +148,7 @@ int InternalRamAllocated::vasprintf(char** strp, const char* fmt, va_list ap)
   // determine required size:
   va_list apsz;
   va_copy(apsz, ap);
-  size = vsnprintf(NULL, 0, fmt, apsz);
+  size = vsnprintf(p, size, fmt, apsz);
   va_end(apsz);
 
   if (size < 0)
