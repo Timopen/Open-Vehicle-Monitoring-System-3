@@ -89,6 +89,7 @@ static void OvmsServerV3MongooseCallback(struct mg_connection *nc, int ev, void 
         if (MyOvmsServerV3)
           {
           StandardMetrics.ms_s_v3_connected->SetValue(false);
+          StandardMetrics.ms_s_v3_peers->SetValue(0);
           MyOvmsServerV3->SetStatus("Error: Connection failed", true, OvmsServerV3::WaitReconnect);
           MyOvmsServerV3->m_connretry = 20;
           }
@@ -214,6 +215,11 @@ OvmsServerV3::OvmsServerV3(const char* name)
     {
     MyOvmsServerV3Reader = MyNotify.RegisterReader("ovmsv3", COMMAND_RESULT_NORMAL, std::bind(OvmsServerV3ReaderCallback, _1, _2),
                                                    true, std::bind(OvmsServerV3ReaderFilterCallback, _1, _2));
+    }
+  else
+    {
+    MyNotify.RegisterReader(MyOvmsServerV3Reader, "ovmsv3", COMMAND_RESULT_NORMAL, std::bind(OvmsServerV3ReaderCallback, _1, _2),
+                            true, std::bind(OvmsServerV3ReaderFilterCallback, _1, _2));
     }
 
   // init event listener:
@@ -573,13 +579,17 @@ void OvmsServerV3::RemoveClient(std::string id)
 
 void OvmsServerV3::CountClients()
   {
-  for (auto it = m_clients.begin(); it != m_clients.end(); ++it)
+  for (auto it = m_clients.begin(); it != m_clients.end();)
     {
     if (it->second < monotonictime)
       {
       // Expired, so delete it...
-      m_clients.erase(it);
       ESP_LOGI(TAG,"MQTT client %s has timed out",it->first.c_str());
+      it = m_clients.erase(it);
+      }
+    else
+      {
+      it++;
       }
     }
 
@@ -672,6 +682,7 @@ void OvmsServerV3::Disconnect()
     }
   m_connretry = 0;
   StandardMetrics.ms_s_v3_connected->SetValue(false);
+  StandardMetrics.ms_s_v3_peers->SetValue(0);
   }
 
 void OvmsServerV3::SetStatus(const char* status, bool fault /*=false*/, State newstate /*=Undefined*/)

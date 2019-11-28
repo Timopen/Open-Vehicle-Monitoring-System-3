@@ -231,9 +231,9 @@ class OvmsMetricString : public OvmsMetric
 
 /**
  * OvmsMetricBitset<bits>: metric wrapper for std::bitset<bits>
- *  - string representation as comma separated bit positions (beginning at 1) of set bits
+ *  - string representation as comma separated bit positions (beginning at startpos) of set bits
  */
-template <size_t N>
+template <size_t N, int startpos=1>
 class OvmsMetricBitset : public OvmsMetric
   {
   public:
@@ -258,10 +258,18 @@ class OvmsMetricBitset : public OvmsMetric
           {
           if (ss.tellp() > 0)
             ss << ',';
-          ss << i+1;
+          ss << startpos + i;
           }
         }
       return ss.str();
+      }
+
+    virtual std::string AsJSON(const char* defvalue = "", metric_unit_t units = Other, int precision = -1)
+      {
+      std::string json = "[";
+      json += AsString(defvalue, units, precision);
+      json += "]";
+      return json;
       }
 
     void SetValue(std::string value)
@@ -274,8 +282,9 @@ class OvmsMetricBitset : public OvmsMetric
         {
         std::istringstream ts(token);
         ts >> elem;
-        if (elem > 0 && elem <= N)
-          n_value[elem-1] = 1;
+        elem -= startpos;
+        if (elem >= 0 && elem < N)
+          n_value[elem] = 1;
         }
       SetValue(n_value);
       }
@@ -342,6 +351,14 @@ class OvmsMetricSet : public OvmsMetric
         ss << *i;
         }
       return ss.str();
+      }
+
+    virtual std::string AsJSON(const char* defvalue = "", metric_unit_t units = Other, int precision = -1)
+      {
+      std::string json = "[";
+      json += AsString(defvalue, units, precision);
+      json += "]";
+      return json;
       }
 
     void SetValue(std::string value)
@@ -549,6 +566,11 @@ class OvmsMetricVector : public OvmsMetric
       SetModified(modified);
       }
 
+    uint32_t GetSize()
+      {
+      return m_value.size();
+      }
+
   protected:
     OvmsMutex m_mutex;
     std::vector<ElemType, Allocator> m_value;
@@ -606,6 +628,15 @@ class OvmsMetrics
       {
       OvmsMetricSet<ElemType> *m = (OvmsMetricSet<ElemType> *)Find(metric);
       if (m==NULL) m = new OvmsMetricSet<ElemType>(metric, autostale, units);
+      if (value)
+        m->SetValue(value);
+      return m;
+      }
+    template <typename ElemType>
+    OvmsMetricVector<ElemType> *InitVector(const char* metric, uint16_t autostale=0, const char* value=NULL, metric_unit_t units = Other)
+      {
+      OvmsMetricVector<ElemType> *m = (OvmsMetricVector<ElemType> *)Find(metric);
+      if (m==NULL) m = new OvmsMetricVector<ElemType>(metric, autostale, units);
       if (value)
         m->SetValue(value);
       return m;

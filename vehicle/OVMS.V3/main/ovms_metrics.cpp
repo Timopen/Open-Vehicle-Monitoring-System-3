@@ -47,16 +47,36 @@ OvmsMetrics       MyMetrics       __attribute__ ((init_priority (1800)));
 void metrics_list(int verbosity, OvmsWriter* writer, OvmsCommand* cmd, int argc, const char* const* argv)
   {
   bool found = false;
+  bool show_staleness = false;
+  for (int i=0;i<argc;i++)
+    if (strcmp(argv[i],"-s")==0)
+      show_staleness = true;
   for (OvmsMetric* m=MyMetrics.m_first; m != NULL; m=m->m_next)
     {
     const char *k = m->m_name;
     std::string v = m->AsString();
-    if ((argc==0)||(strstr(k,argv[0])))
+    bool match = false;
+    for (int i=0;i<argc;i++)
+      if (strstr(k,argv[i]))
+        match = true;
+    if ((argc==0) || match || ((argc==1)&&(show_staleness)) )
       {
+      if (show_staleness)
+        {
+        int age = m->Age();
+        if (age>99)
+          age=99;
+        if (v.empty())
+          writer->printf("[---] ",k);
+        else
+          writer->printf("[%02d%c] ", age, (m->IsStale() ? 'S' : '-' ));
+        }
       if (v.empty())
         writer->printf("%s\n",k);
       else
-        writer->printf("%-40.40s %s%s\n",k,v.c_str(),OvmsMetricUnitLabel(m->GetUnits()));
+        writer->printf("%-40.40s %s%s\n",
+          k,v.c_str(),OvmsMetricUnitLabel(m->GetUnits()));
+      
       found = true;
       }
     }
@@ -91,6 +111,19 @@ static duk_ret_t DukOvmsMetricValue(duk_context *ctx)
   if (m)
     {
     duk_push_string(ctx, m->AsString().c_str());
+    return 1;  /* one return value */
+    }
+  else
+    return 0;
+  }
+
+static duk_ret_t DukOvmsMetricJSON(duk_context *ctx)
+  {
+  const char *mn = duk_to_string(ctx,0);
+  OvmsMetric *m = MyMetrics.Find(mn);
+  if (m)
+    {
+    duk_push_string(ctx, m->AsJSON().c_str());
     return 1;  /* one return value */
     }
   else
@@ -132,7 +165,7 @@ OvmsMetrics::OvmsMetrics()
 
   // Register our commands
   OvmsCommand* cmd_metric = MyCommandApp.RegisterCommand("metrics","METRICS framework");
-  cmd_metric->RegisterCommand("list","Show all metrics",metrics_list, "[<metric>]", 0, 1);
+  cmd_metric->RegisterCommand("list","Show all metrics",metrics_list, "[<metric>] [-s]", 0, 2);
   cmd_metric->RegisterCommand("set","Set the value of a metric",metrics_set, "<metric> <value>", 2, 2);
   OvmsCommand* cmd_metrictrace = cmd_metric->RegisterCommand("trace","METRIC trace framework");
   cmd_metrictrace->RegisterCommand("on","Turn metric tracing ON",metrics_trace);
@@ -142,6 +175,7 @@ OvmsMetrics::OvmsMetrics()
   ESP_LOGI(TAG, "Expanding DUKTAPE javascript engine");
   DuktapeObjectRegistration* dto = new DuktapeObjectRegistration("OvmsMetrics");
   dto->RegisterDuktapeFunction(DukOvmsMetricValue, 1, "Value");
+  dto->RegisterDuktapeFunction(DukOvmsMetricJSON, 1, "AsJSON");
   dto->RegisterDuktapeFunction(DukOvmsMetricFloat, 1, "AsFloat");
   MyScripts.RegisterDuktapeObject(dto);
 #endif //#ifdef CONFIG_OVMS_SC_JAVASCRIPT_DUKTAPE

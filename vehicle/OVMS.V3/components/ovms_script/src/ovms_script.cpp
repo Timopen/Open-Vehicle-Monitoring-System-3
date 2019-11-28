@@ -562,6 +562,119 @@ static duk_ret_t DukOvmsCommand(duk_context *ctx)
     }
   }
 
+static duk_ret_t DukOvmsRaiseEvent(duk_context *ctx)
+  {
+  const char *event = duk_to_string(ctx,0);
+  uint32_t delay_ms = duk_is_number(ctx,1) ? duk_to_uint32(ctx,1) : 0;
+
+  if (event != NULL)
+    {
+    MyEvents.SignalEvent(event, NULL, (size_t)0, delay_ms);
+    }
+  return 0;  /* no return value */
+  }
+
+static duk_ret_t DukOvmsConfigParams(duk_context *ctx)
+  {
+  if (!MyConfig.ismounted()) return 0;
+
+  duk_idx_t arr_idx = duk_push_array(ctx);
+  int count = 0;
+  for (ConfigMap::iterator it=MyConfig.m_map.begin(); it!=MyConfig.m_map.end(); ++it)
+    {
+    duk_push_string(ctx, it->first.c_str());
+    duk_put_prop_index(ctx, arr_idx, count++);
+    }
+
+  return 1;
+  }
+
+static duk_ret_t DukOvmsConfigInstances(duk_context *ctx)
+  {
+  const char *param = duk_to_string(ctx,0);
+
+  if (!MyConfig.ismounted()) return 0;
+
+  OvmsConfigParam *p = MyConfig.CachedParam(param);
+  if (p)
+    {
+    if (! p->Readable()) return 0;  // Parameter is protected, and not readable
+
+    duk_idx_t arr_idx = duk_push_array(ctx);
+    int count = 0;
+    for (ConfigParamMap::iterator it=p->m_map.begin(); it!=p->m_map.end(); ++it)
+      {
+      duk_push_string(ctx, it->first.c_str());
+      duk_put_prop_index(ctx, arr_idx, count++);
+      }
+    return 1;
+    }
+
+  return 0;
+  }
+
+static duk_ret_t DukOvmsConfigGet(duk_context *ctx)
+  {
+  const char *param = duk_to_string(ctx,0);
+  const char *instance = duk_to_string(ctx,1);
+  const char *defvalue = duk_to_string(ctx,2);
+
+  if (!MyConfig.ismounted()) return 0;
+  OvmsConfigParam *p = MyConfig.CachedParam(param);
+  if (p)
+    {
+    if (! p->Readable()) return 0;  // Parameter is protected, and not readable
+    if (p->IsDefined(instance))
+      {
+      std::string v = p->GetValue(instance);
+      duk_push_string(ctx, v.c_str());
+      }
+    else
+      {
+      duk_push_string(ctx, defvalue);
+      }
+    return 1;
+    }
+  else
+    {
+    return 0;
+    }
+  return 0;
+  }
+
+static duk_ret_t DukOvmsConfigSet(duk_context *ctx)
+  {
+  const char *param = duk_to_string(ctx,0);
+  const char *instance = duk_to_string(ctx,1);
+  const char *value = duk_to_string(ctx,2);
+
+  if (!MyConfig.ismounted()) return 0;
+
+  OvmsConfigParam *p = MyConfig.CachedParam(param);
+  if (p)
+    {
+    if (! p->Writable()) return 0;  // Parameter is not writeable
+    p->SetValue(instance, value);
+    }
+  return 0;
+  }
+
+static duk_ret_t DukOvmsConfigDelete(duk_context *ctx)
+  {
+  const char *param = duk_to_string(ctx,0);
+  const char *instance = duk_to_string(ctx,1);
+
+  if (!MyConfig.ismounted()) return 0;
+
+  OvmsConfigParam *p = MyConfig.CachedParam(param);
+  if (p)
+    {
+    if (! p->Writable()) return 0;  // Parameter is not writeable
+    p->DeleteInstance(instance);
+    }
+  return 0;
+  }
+
 void OvmsScripts::RegisterDuktapeFunction(duk_c_function func, duk_idx_t nargs, const char* name)
   {
   duktape_registerfunction_t* fn = new duktape_registerfunction_t;
@@ -923,7 +1036,14 @@ static void script_ovms(bool print, int verbosity, OvmsWriter* writer,
     MyScripts.DuktapeEvalNoResult(script, writer);
     delete [] script;
 #else // #ifdef CONFIG_OVMS_SC_JAVASCRIPT_DUKTAPE
-    writer->puts("Error: No javascript engine available");
+    if (writer)
+      {
+      writer->puts("Error: No javascript engine available");
+      }
+    else
+      {
+      ESP_LOGE(TAG, "Error: No javascript engine available");
+      }
 #endif // #ifdef CONFIG_OVMS_SC_JAVASCRIPT_DUKTAPE
     fclose(sf);
     }
@@ -938,7 +1058,16 @@ static void script_ovms(bool print, int verbosity, OvmsWriter* writer,
       bs->ProcessChars(cmdline, strlen(cmdline));
       }
     fclose(sf);
-    bs->Output(writer);
+    if (writer)
+      {
+      bs->Output(writer);
+      }
+    else
+      {
+      extram::string output;
+      bs->Dump(output);
+      ESP_LOGI(TAG, "%s", output.c_str());
+      }
     delete bs;
     delete [] cmdline;
     }
@@ -983,7 +1112,9 @@ void OvmsScripts::AllScripts(std::string path)
   DIR *dir;
   struct dirent *dp;
   FILE *sf;
+  std::set<std::string> files;
 
+  // read dir, sort scripts by name:
   if ((dir = opendir (path.c_str())) != NULL)
     {
     while ((dp = readdir (dir)) != NULL)
@@ -991,15 +1122,22 @@ void OvmsScripts::AllScripts(std::string path)
       std::string fpath = path;
       fpath.append("/");
       fpath.append(dp->d_name);
-      sf = fopen(fpath.c_str(), "r");
-      if (sf)
-        {
-        ESP_LOGI(TAG, "Running script %s", fpath.c_str());
-        script_ovms(false, COMMAND_RESULT_MINIMAL, ConsoleAsync::Instance(),
-          fpath.c_str(), sf, true);
-        }
+      files.insert(fpath);
       }
     closedir(dir);
+    }
+
+  // execute scripts:
+  for (auto it = files.begin(); it != files.end(); it++)
+    {
+    std::string fpath = *it;
+    sf = fopen(fpath.c_str(), "r");
+    if (sf)
+      {
+      ESP_LOGI(TAG, "Running script %s", fpath.c_str());
+      script_ovms(false, COMMAND_RESULT_MINIMAL, NULL, fpath.c_str(), sf, true);
+      // script_ovms() closes sf
+      }
     }
   }
 
@@ -1053,12 +1191,22 @@ OvmsScripts::OvmsScripts()
   DuktapeObjectRegistration* dto = new DuktapeObjectRegistration("OvmsCommand");
   dto->RegisterDuktapeFunction(DukOvmsCommand, 1, "Exec");
   RegisterDuktapeObject(dto);
+  dto = new DuktapeObjectRegistration("OvmsEvents");
+  dto->RegisterDuktapeFunction(DukOvmsRaiseEvent, 2, "Raise");
+  RegisterDuktapeObject(dto);
+  dto = new DuktapeObjectRegistration("OvmsConfig");
+  dto->RegisterDuktapeFunction(DukOvmsConfigParams, 0, "Params");
+  dto->RegisterDuktapeFunction(DukOvmsConfigInstances, 1, "Instances");
+  dto->RegisterDuktapeFunction(DukOvmsConfigGet, 3, "Get");
+  dto->RegisterDuktapeFunction(DukOvmsConfigSet, 3, "Set");
+  dto->RegisterDuktapeFunction(DukOvmsConfigDelete, 2, "Delete");
+  MyScripts.RegisterDuktapeObject(dto);
 
   // Start the DukTape task...
   m_duktaskqueue = xQueueCreate(CONFIG_OVMS_SC_JAVASCRIPT_DUKTAPE_QUEUE_SIZE,sizeof(duktape_queue_t));
   xTaskCreatePinnedToCore(DukTapeLaunchTask, "OVMS DukTape",
                           CONFIG_OVMS_SC_JAVASCRIPT_DUKTAPE_STACK, (void*)this,
-                          CONFIG_OVMS_SC_JAVASCRIPT_DUKTAPE_PRIORITY, &m_duktaskid, 1);
+                          CONFIG_OVMS_SC_JAVASCRIPT_DUKTAPE_PRIORITY, &m_duktaskid, CORE(1));
   AddTaskToMap(m_duktaskid);
 #endif //#ifdef CONFIG_OVMS_SC_JAVASCRIPT_DUKTAPE
 
