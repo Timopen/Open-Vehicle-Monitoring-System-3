@@ -29,13 +29,14 @@
 #ifndef __PUSHOVER_H__
 #define __PUSHOVER_H__
 
+#include "pcp.h"
 #include "ovms_config.h"
 #include "ovms_notify.h"
 #include "ovms_buffer.h"
 #include <string>
 
 
-class Pushover : public InternalRamAllocated
+class Pushover : public pcp, public InternalRamAllocated
   {
   public:
     Pushover();
