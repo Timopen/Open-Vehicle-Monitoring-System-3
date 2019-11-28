@@ -272,7 +272,7 @@ void can_list(int verbosity, OvmsWriter* writer, OvmsCommand* cmd, int argc, con
   {
   for (int k=1;k<5;k++)
     {
-    static const char* name[4] = {"can1", "can2", "can3", "can4"};
+    static const char* name[4] = {"can1", "can2", "can3", "swcan"};
     canbus* sbus = (canbus*)MyPcpApp.FindDeviceByName(name[k-1]);
     if (sbus != NULL)
       {
@@ -748,7 +748,7 @@ can::can()
 
   for (int k=1;k<5;k++)
     {
-    static const char* name[4] = {"can1", "can2", "can3", "can4"};
+    static const char* name[4] = {"can1", "can2", "can3", "swcan"};
     OvmsCommand* cmd_canx = cmd_can->RegisterCommand(name[k-1],"CANx framework");
     OvmsCommand* cmd_canstart = cmd_canx->RegisterCommand("start","CAN start framework");
     cmd_canstart->RegisterCommand("listen","Start CAN bus in listen mode",can_start,"<baud> [<dbc>]", 1, 2);
@@ -787,10 +787,17 @@ canbus* can::GetBus(int busnumber)
   if (found != NULL) return found;
 
   char cbus[5];
-  strcpy(cbus,"can");
-  cbus[3] = busnumber+'1';
-  cbus[4] = 0;
-  found = (canbus*)MyPcpApp.FindDeviceByName(cbus);
+  if (busnumber<3)
+    {
+    strcpy(cbus,"can");
+    cbus[3] = busnumber+'1';
+    cbus[4] = 0;
+    found = (canbus*)MyPcpApp.FindDeviceByName(cbus);
+    }
+  else
+    {
+    found = (canbus*)MyPcpApp.FindDeviceByName("swcan");
+    }
   if (found)
     {
     m_buslist[busnumber] = found;
@@ -869,7 +876,10 @@ void can::ExecuteCallbacks(const CAN_frame_t* frame, bool tx, bool success)
 canbus::canbus(const char* name)
   : pcp(name)
   {
-  m_busnumber = name[strlen(name)-1] - '1';
+  if (strcmp(name,"swcan")==0)
+    m_busnumber = 3;
+  else
+    m_busnumber = name[strlen(name)-1] - '1';
   m_txqueue = xQueueCreate(CONFIG_OVMS_HW_CAN_TX_QUEUE_SIZE, sizeof(CAN_frame_t));
   m_mode = CAN_MODE_OFF;
   m_speed = CAN_SPEED_1000KBPS;
