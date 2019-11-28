@@ -178,7 +178,6 @@ void ota_flash_vfs(int verbosity, OvmsWriter* writer, OvmsCommand* cmd, int argc
   if (err != ESP_OK)
     {
     writer->printf("Error: ESP32 error #%d when starting OTA operation\n",err);
-    fclose(f);
     return;
     }
 
@@ -437,14 +436,12 @@ void OvmsOTA::AutoFlashSD(std::string event, void* data)
   if (!m_lock.IsLocked())
     {
     ESP_LOGW(TAG, "AutoFlashSD: Flash operation already in progress - cannot auto flash");
-    fclose(f);
     return;
     }
 
   if (running==NULL)
     {
     ESP_LOGE(TAG, "AutoFlashSD Error: Current running image cannot be determined - aborting");
-    fclose(f);
     return;
     }
   ESP_LOGW(TAG, "AutoFlashSD Current running partition is: %s",running->label);
@@ -452,7 +449,6 @@ void OvmsOTA::AutoFlashSD(std::string event, void* data)
   if (target==NULL)
     {
     ESP_LOGE(TAG, "AutoFlashSD Error: Target partition cannot be determined - aborting");
-    fclose(f);
     return;
     }
   ESP_LOGW(TAG, "AutoFlashSD Target partition is: %s",target->label);
@@ -460,7 +456,6 @@ void OvmsOTA::AutoFlashSD(std::string event, void* data)
   if (running == target)
     {
     ESP_LOGE(TAG, "AutoFlashSD Error: Cannot flash to running image partition");
-    fclose(f);
     return;
     }
 
@@ -468,7 +463,6 @@ void OvmsOTA::AutoFlashSD(std::string event, void* data)
   if (stat("/sd/ovms3.bin", &ds) != 0)
     {
     ESP_LOGE(TAG, "AutoFlashSD Error: Cannot stat file");
-    fclose(f);
     return;
     }
   ESP_LOGW(TAG, "AutoFlashSD Source image is %d bytes in size",(int)ds.st_size);
@@ -479,7 +473,6 @@ void OvmsOTA::AutoFlashSD(std::string event, void* data)
   if (err != ESP_OK)
     {
     ESP_LOGE(TAG, "AutoFlashSD Error: ESP32 error #%d when starting OTA operation",err);
-    fclose(f);
     return;
     }
 
@@ -496,7 +489,6 @@ void OvmsOTA::AutoFlashSD(std::string event, void* data)
       return;
       }
     }
-
   fclose(f);
 
   err = esp_ota_end(otah);
@@ -505,6 +497,8 @@ void OvmsOTA::AutoFlashSD(std::string event, void* data)
     ESP_LOGE(TAG, "AutoFlashSD Error: ESP32 error #%d finalising OTA operation - state is inconsistent",err);
     return;
     }
+
+  fclose(f);
 
   ESP_LOGW(TAG, "AutoFlashSD Setting boot partition...");
   err = esp_ota_set_boot_partition(target);
