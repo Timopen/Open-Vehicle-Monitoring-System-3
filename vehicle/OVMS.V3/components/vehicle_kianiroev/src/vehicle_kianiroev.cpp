@@ -68,8 +68,10 @@
 #include "metrics_standard.h"
 #include "ovms_metrics.h"
 #include "ovms_notify.h"
+#include "ovms_peripherals.h"
 #include <sys/param.h>
 #include "../../vehicle_kiasoulev/src/kia_common.h"
+#include "kn_trip_data.h"
 
 #define VERSION "0.1.6"
 
@@ -162,6 +164,9 @@ OvmsVehicleKiaNiroEv::OvmsVehicleKiaNiroEv()
 
   kn_heatsink_temperature = 0;
   kn_battery_fan_feedback = 0;
+
+
+
 
   kia_send_can.id = 0;
   kia_send_can.status = 0;
@@ -297,6 +302,11 @@ OvmsVehicleKiaNiroEv::OvmsVehicleKiaNiroEv()
   PollSetPidList(m_can1,vehicle_kianiroev_polls);
 
   kn_range_calc = new RangeCalculator(1, 4, 455, 64);
+  uint64_t timestring = StdMetrics.ms_m_timeutc->AsInt()*(uint64_t)1000;
+  char ch_timestring[21]; // enough to hold all numbers up to 64-bits
+  sprintf(ch_timestring, "%llu", timestring);
+  trip_data = new kn_TripData(timestring);
+
   }
 
 /**
@@ -332,6 +342,7 @@ void OvmsVehicleKiaNiroEv::ConfigChanged(OvmsConfigParam* param)
   *StdMetrics.ms_v_charge_limit_range = (float) MyConfig.GetParamValueInt("xkn", "suffrange");
 
   kia_enable_write = MyConfig.GetParamValueBool("xkn", "canwrite", false);
+  kia_enable_tripdata = MyConfig.GetParamValueBool("xkn", "tripdata", false);
 	}
 
 /**
@@ -343,6 +354,10 @@ void OvmsVehicleKiaNiroEv::vehicle_kianiroev_car_on(bool isOn)
   {
 	kn_shift_bits.CarOn=isOn;
 	StdMetrics.ms_v_env_awake->SetValue(isOn);
+  uint64_t kia_esp_time_now = esp_log_timestamp();
+  //uint64_t timestring = StdMetrics.ms_m_timeutc->AsInt()*(uint64_t)1000;
+  char ch_timestring[21]; // enough to hold all numbers up to 64-bits
+  sprintf(ch_timestring, "%llu", kia_esp_time_now);
   if (isOn)
     {
 		// Car is ON
@@ -352,6 +367,7 @@ void OvmsVehicleKiaNiroEv::vehicle_kianiroev_car_on(bool isOn)
     kia_ready_for_chargepollstate = true;
     kia_park_trip_counter.Reset(POS_ODO, CUM_DISCHARGE, CUM_CHARGE);
     BmsResetCellStats();
+    trip_data->SetFilename ("/sd/Trip/TripData" + string(ch_timestring) + ".dat");
     }
   else if(!isOn)
     {
@@ -365,6 +381,8 @@ void OvmsVehicleKiaNiroEv::vehicle_kianiroev_car_on(bool isOn)
     kia_ready_for_chargepollstate = true;
 		kn_range_calc->tripEnded(kia_park_trip_counter.GetDistance(), kia_park_trip_counter.GetEnergyUsed());
 		SaveStatus();
+
+    trip_data->SetFilename ("/sd/Trip/TripData" + string(ch_timestring) + ".dat");
     	}
   }
 
@@ -486,6 +504,12 @@ void OvmsVehicleKiaNiroEv::Ticker1(uint32_t ticker)
 			}
 		}
 
+  // Save tripdata if car is on and not charging and feature ticked and sd-card present ech 5 seconds .
+  if (StdMetrics.ms_v_env_on->AsBool() && !isCharging && (ticker % 5) == 0 && kia_enable_tripdata && StdMetrics.ms_v_pos_odometer->AsInt() > 0) // && (!MyPeripherals || !MyPeripherals->m_sdcard || !MyPeripherals->m_sdcard->isavailable()) )
+    {
+      HandleTripData();
+    }
+
 	//**** AUX Battery drain prevention code ***
 	//If no clients are connected for 60 seconds, we'll turn off polling.
 	if((StdMetrics.ms_s_v2_peers->AsInt() + StdMetrics.ms_s_v3_peers->AsInt())==0)
@@ -551,6 +575,7 @@ void OvmsVehicleKiaNiroEv::Ticker10(uint32_t ticker)
  */
 void OvmsVehicleKiaNiroEv::Ticker300(uint32_t ticker)
 	{
+  m_b_aux_soc->SetValue( CalcAUXSoc( StdMetrics.ms_v_bat_12v_voltage->AsFloat() ) );
 	Save12VHistory();
 	}
 
@@ -728,6 +753,24 @@ uint16_t OvmsVehicleKiaNiroEv::calcMinutesRemaining(float target)
 	  return MIN( 1440, (uint16_t) (((target - (kn_battery_capacity * BAT_SOC) / 100.0)*60.0) /
               (CHARGE_VOLTAGE * CHARGE_CURRENT)));
   		}
+
+
+    void OvmsVehicleKiaNiroEv::HandleTripData()
+      	{
+
+          //uint64_t timeStamp = StdMetrics.ms_m_timeutc->AsInt()*(uint64_t)1000;
+          uint64_t kia_esp_time_now = esp_log_timestamp();
+          float Lat = StdMetrics.ms_v_pos_latitude->AsFloat();
+          float Lng = StdMetrics.ms_v_pos_longitude->AsFloat();
+          float Speed = StdMetrics.ms_v_pos_speed->AsFloat();
+          int Odo = StdMetrics.ms_v_pos_odometer->AsInt();
+          int Soc = BAT_SOC;
+          float Consumption = CUM_DISCHARGE; //StdMetrics.ms_v_bat_energy_used->AsFloat(kWh);
+          trip_data->SetData(kia_esp_time_now, Lat, Lng, Speed, Odo, Soc, Consumption);
+          trip_data->saveTrips();
+        }
+
+
 
 /**
  * Updates the maximum real world range at current temperature.

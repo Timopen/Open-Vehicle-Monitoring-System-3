@@ -30,6 +30,7 @@
 #define __VEHICLE_KIANIROEV_H__
 
 #include "../../vehicle_kiasoulev/src/kia_common.h"
+#include "kn_trip_data.h"
 #include "vehicle.h"
 #ifdef CONFIG_OVMS_COMP_WEBSERVER
 #include "ovms_webserver.h"
@@ -125,6 +126,7 @@ class OvmsVehicleKiaNiroEv : public KiaVehicle
   protected:
     void HandleCharging();
     void HandleChargeStop();
+    void HandleTripData();
     void IncomingOBC(canbus* bus, uint16_t type, uint16_t pid, uint8_t* data, uint8_t length, uint16_t mlremain);
     void IncomingVMCU(canbus* bus, uint16_t type, uint16_t pid, uint8_t* data, uint8_t length, uint16_t mlremain);
     void IncomingMCU(canbus* bus, uint16_t type, uint16_t pid, uint8_t* data, uint8_t length, uint16_t mlremain);
@@ -160,6 +162,8 @@ class OvmsVehicleKiaNiroEv : public KiaVehicle
     unsigned int kn_notifications = 0;
 
     KnShiftBits kn_shift_bits;
+
+    kn_TripData *trip_data;
 
     bool kn_charge_timer_off; //True if the charge timer button is on
 

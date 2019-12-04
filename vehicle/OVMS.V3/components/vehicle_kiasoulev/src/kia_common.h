@@ -142,7 +142,7 @@ protected:
   uint32_t kia_battery_cum_charge; 						//Cumulated charge power
   uint32_t kia_battery_cum_discharge; 					//Cumulated discharge power
   uint32_t kia_battery_cum_op_time; 						//Cumulated operating time
-  uint32_t kia_last_battery_cum_charge;					
+  uint32_t kia_last_battery_cum_charge;
 
   float kia_obc_ac_voltage;
   float kia_obc_ac_current;
@@ -150,7 +150,7 @@ protected:
   float kia_last_soc;
   float kia_last_ideal_range;
   float kia_cum_charge_start; 		// Used to calculate charged power.
-  
+
 
   bool kia_ready_for_chargepollstate;
   bool kia_check_door_lock;
@@ -158,6 +158,7 @@ protected:
   bool kia_unlockDoors;
 
   bool kia_enable_write;
+  bool kia_enable_tripdata;
 
   uint8_t kia_secs_with_no_client;
 
@@ -244,9 +245,9 @@ public:
 #define SMART_KEY_UNIT 				0x7A5
 #define ABS_EBP_UNIT 					0x7A5
 #define ON_BOARD_CHARGER_UNIT 0x794
-    
+
 #define POLLSTATE_OFF                  PollSetState(0);
 #define POLLSTATE_RUNNING           PollSetState(1);
 #define POLLSTATE_CHARGING      PollSetState(2);
- 
+
  #endif //#ifndef __VEHICLE_KIA_COMMON_H__

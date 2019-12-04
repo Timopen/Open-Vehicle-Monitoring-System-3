@@ -65,14 +65,15 @@ void OvmsVehicleKiaNiroEv::WebCfgFeatures(PageEntry_t& p, PageContext_t& c)
 {
   std::string error;
   bool canwrite;
-
+  bool tripdata;
   if (c.method == "POST") {
     // process form submission:
     canwrite = (c.getvar("canwrite") == "yes");
-
+    tripdata = (c.getvar("tripdata") == "yes");
     if (error == "") {
       // store:
       MyConfig.SetParamValueBool("xkn", "canwrite", canwrite);
+      MyConfig.SetParamValueBool("xkn", "tripdata", tripdata);
 
       c.head(200);
       c.alert("success", "<p class=\"lead\">Kia Niro EV feature configuration saved.</p>");
@@ -89,7 +90,7 @@ void OvmsVehicleKiaNiroEv::WebCfgFeatures(PageEntry_t& p, PageContext_t& c)
   else {
     // read configuration:
     canwrite = MyConfig.GetParamValueBool("xkn", "canwrite", false);
-
+    tripdata = MyConfig.GetParamValueBool("xkn", "tripdata", false);
     c.head(200);
   }
 
@@ -101,6 +102,11 @@ void OvmsVehicleKiaNiroEv::WebCfgFeatures(PageEntry_t& p, PageContext_t& c)
   c.fieldset_start("General");
   c.input_checkbox("Enable CAN writes", "canwrite", canwrite,
     "<p>Controls overall CAN write access, all control functions depend on this.</p>");
+  c.fieldset_end();
+
+  c.fieldset_start("Functionality");
+  c.input_checkbox("Enable save tripdata", "tripdata", tripdata,
+    "<p>Enables saving tripdata to sd-card for tracking trips. Create dirctory /sd/Trip</p>");
   c.fieldset_end();
 
   //c.fieldset_start("Functionality");
