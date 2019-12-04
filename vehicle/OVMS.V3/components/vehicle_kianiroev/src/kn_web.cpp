@@ -65,6 +65,7 @@ void OvmsVehicleKiaNiroEv::WebCfgFeatures(PageEntry_t& p, PageContext_t& c)
 {
   std::string error;
   bool canwrite;
+<<<<<<< HEAD
   bool tripdata;
   if (c.method == "POST") {
     // process form submission:
@@ -74,9 +75,25 @@ void OvmsVehicleKiaNiroEv::WebCfgFeatures(PageEntry_t& p, PageContext_t& c)
       // store:
       MyConfig.SetParamValueBool("xkn", "canwrite", canwrite);
       MyConfig.SetParamValueBool("xkn", "tripdata", tripdata);
+=======
+  bool consoleKilometers;
+  bool leftDrive;
+
+  if (c.method == "POST") {
+    // process form submission:
+    canwrite = (c.getvar("canwrite") == "yes");
+    consoleKilometers = (c.getvar("consoleKilometers") == "yes");
+    leftDrive = (c.getvar("leftDrive") == "yes");
+
+    if (error == "") {
+      // store:
+      MyConfig.SetParamValueBool("xkn", "canwrite", canwrite);
+      MyConfig.SetParamValueBool("xkn", "consoleKilometers", consoleKilometers);
+      MyConfig.SetParamValueBool("xkn", "leftDrive", leftDrive);
+>>>>>>> 1b99eb7014c054d9d630c85437d62f3a8f2e204f
 
       c.head(200);
-      c.alert("success", "<p class=\"lead\">Kia Niro EV feature configuration saved.</p>");
+      c.alert("success", "<p class=\"lead\">Kia Niro / Hyundai Kona EV feature configuration saved.</p>");
       MyWebServer.OutputHome(p, c);
       c.done();
       return;
@@ -90,18 +107,28 @@ void OvmsVehicleKiaNiroEv::WebCfgFeatures(PageEntry_t& p, PageContext_t& c)
   else {
     // read configuration:
     canwrite = MyConfig.GetParamValueBool("xkn", "canwrite", false);
+<<<<<<< HEAD
     tripdata = MyConfig.GetParamValueBool("xkn", "tripdata", false);
+=======
+    consoleKilometers = MyConfig.GetParamValueBool("xkn", "consoleKilometers", true);
+    leftDrive = MyConfig.GetParamValueBool("xkn", "leftDrive", true);
+
+>>>>>>> 1b99eb7014c054d9d630c85437d62f3a8f2e204f
     c.head(200);
   }
 
   // generate form:
 
-  c.panel_start("primary", "Kia Niro EV feature configuration");
+  c.panel_start("primary", "Kia Niro / Hyundai Kona EV feature configuration");
   c.form_start(p.uri);
 
   c.fieldset_start("General");
   c.input_checkbox("Enable CAN writes", "canwrite", canwrite,
     "<p>Controls overall CAN write access, all control functions depend on this.</p>");
+  c.input_checkbox("Console odometer in Kilometers", "consoleKilometers", consoleKilometers,
+    "<p>Enable for cars with console odometer in Kilometers, disable for Miles</p>");
+  c.input_checkbox("Left hand drive", "leftDrive", leftDrive,
+    "<p>Enable for left hand drive cars, disable for right hand drive.</p>");
   c.fieldset_end();
 
   c.fieldset_start("Functionality");
@@ -194,7 +221,7 @@ void OvmsVehicleKiaNiroEv::WebCfgBattery(PageEntry_t& p, PageContext_t& c)
 
   // generate form:
 
-  c.panel_start("primary", "Kia Niro EV battery setup");
+  c.panel_start("primary", "Kia Niro / Hyundai Kona EV battery setup");
   c.form_start(p.uri);
 
   c.fieldset_start("Battery properties");
