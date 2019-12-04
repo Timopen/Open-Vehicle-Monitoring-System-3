@@ -27,7 +27,7 @@
 */
 
 #include "ovms_log.h"
-// static const char *TAG = "webserver";
+static const char *TAG = "webserver";
 
 #include <string.h>
 #include <stdio.h>
@@ -46,6 +46,10 @@
 
 #ifdef CONFIG_OVMS_COMP_OTA
 #include "ovms_ota.h"
+#endif
+
+#ifdef CONFIG_OVMS_COMP_PUSHOVER
+#include "pushover.h"
 #endif
 
 #define _attr(text) (c.encode_html(text).c_str())
@@ -296,12 +300,19 @@ void OvmsWebServer::HandleShell(PageEntry_t& p, PageContext_t& c)
         "border: 0 none;"
       "}"
     "}"
+    ".log { font-size: 87%; color: gray; }"
+    ".log.log-I { color: green; }"
+    ".log.log-W { color: darkorange; }"
+    ".log.log-E { color: red; }"
     "</style>");
 
-  c.panel_start("primary panel-minpad", "Shell");
+  c.panel_start("primary panel-minpad", "Shell"
+    "<div class=\"pull-right checkbox\" style=\"margin: 0;\">"
+      "<label><input type=\"checkbox\" id=\"logmonitor\" checked accesskey=\"L\"> <u>L</u>og Monitor</label>"
+    "</div>");
 
   c.printf(
-    "<pre class=\"get-window-resize\" id=\"output\">%s</pre>"
+    "<pre class=\"receiver get-window-resize\" id=\"output\">%s</pre>"
     "<form id=\"shellform\" method=\"post\" action=\"#\">"
       "<div class=\"input-group\">"
         "<label class=\"input-group-addon hidden-xs\" for=\"input-command\">OVMS#</label>"
@@ -314,8 +325,28 @@ void OvmsWebServer::HandleShell(PageEntry_t& p, PageContext_t& c)
     , _html(output.c_str()), _attr(command.c_str()));
 
   c.print(
-    "<script>"
-    "$(\"#output\").on(\"window-resize\", function(){"
+    "<script>(function(){"
+    "var $output = $('#output'), $command = $('#input-command');"
+    "var add_output = function(addhtml) {"
+      "var autoscroll = ($output.get(0).scrollTop + $output.innerHeight()) >= $output.get(0).scrollHeight;"
+      "$output.append(addhtml);"
+      "if (autoscroll) $output.scrollTop($output.get(0).scrollHeight);"
+    "};"
+    "var htmsg = \"\";"
+    "for (msg of loghist)"
+      "htmsg += '<div class=\"log log-'+msg[0]+'\">'+msg+'</div>';"
+    "$output.html(htmsg);"
+    "$output.on(\"msg:log\", function(ev, msg){"
+      "if (!$(\"#logmonitor\").prop(\"checked\")) return;"
+      "var autoscroll = ($output.get(0).scrollTop + $output.innerHeight()) >= $output.get(0).scrollHeight;"
+      "htmsg = '<div class=\"log log-'+msg[0]+'\">'+msg+'</div>';"
+      "if ($(\"html\").hasClass(\"loading\"))"
+        "$output.find(\"strong:last-of-type\").before(htmsg);"
+      "else "
+        "$output.append(htmsg);"
+      "if (autoscroll) $output.scrollTop($output.get(0).scrollHeight);"
+    "});"
+    "$output.on(\"window-resize\", function(){"
       "var $this = $(this);"
       "var pad = Number.parseInt($this.parent().css(\"padding-top\")) + Number.parseInt($this.parent().css(\"padding-bottom\"));"
       "var h = $(window).height() - $this.offset().top - pad - 81;"
@@ -325,10 +356,10 @@ void OvmsWebServer::HandleShell(PageEntry_t& p, PageContext_t& c)
       "$this.scrollTop($this.get(0).scrollHeight);"
     "}).trigger(\"window-resize\");"
     "$(\"#shellform\").on(\"submit\", function(event){"
-      "if (!$(\"html\").hasClass(\"loading\")) {"
+      "var command = $command.val();"
+      "$output.scrollTop($output.get(0).scrollHeight);"
+      "if (command && !$(\"html\").hasClass(\"loading\")) {"
         "var data = $(this).serialize();"
-        "var command = $(\"#input-command\").val();"
-        "var output = $(\"#output\");"
         "var lastlen = 0, xhr, timeouthd, timeout = 20;"
         "if (/^(test |ota |co .* scan)/.test(command)) timeout = 60;"
         "var checkabort = function(){ if (xhr.readyState != 4) xhr.abort(\"timeout\"); };"
@@ -336,9 +367,8 @@ void OvmsWebServer::HandleShell(PageEntry_t& p, PageContext_t& c)
           "\"timeout\": 0,"
           "\"beforeSend\": function(){"
             "$(\"html\").addClass(\"loading\");"
-            "output.html(output.html() + \"<strong>OVMS#</strong>&nbsp;<kbd>\""
+            "add_output(\"<strong>OVMS#</strong>&nbsp;<kbd>\""
               "+ $(\"<div/>\").text(command).html() + \"</kbd><br>\");"
-            "output.scrollTop(output.get(0).scrollHeight);"
             "timeouthd = window.setTimeout(checkabort, timeout*1000);"
           "},"
           "\"complete\": function(){"
@@ -352,8 +382,7 @@ void OvmsWebServer::HandleShell(PageEntry_t& p, PageContext_t& c)
               "var response = e.currentTarget.response;"
               "var addtext = response.substring(lastlen);"
               "lastlen = response.length;"
-              "output.html(output.html() + $(\"<div/>\").text(addtext).html());"
-              "output.scrollTop(output.get(0).scrollHeight);"
+              "add_output($(\"<div/>\").text(addtext).html());"
               "window.clearTimeout(timeouthd);"
               "timeouthd = window.setTimeout(checkabort, timeout*1000);"
             "},"
@@ -366,8 +395,7 @@ void OvmsWebServer::HandleShell(PageEntry_t& p, PageContext_t& c)
               "txt = \"Error \" + response.status + \" \" + response.statusText;"
             "else"
               "txt = \"Request \" + (xhrerror||\"failed\") + \", please retry\";"
-            "output.html(output.html() + '<div class=\"bg-danger\">'+txt+'</div>');"
-            "output.scrollTop(output.get(0).scrollHeight);"
+            "add_output('<div class=\"bg-danger\">'+txt+'</div>');"
           "},"
         "});"
         "if (shellhist.indexOf(command) >= 0)"
@@ -377,30 +405,44 @@ void OvmsWebServer::HandleShell(PageEntry_t& p, PageContext_t& c)
       "event.stopPropagation();"
       "return false;"
     "});"
-    "$(\"#input-command\").on(\"keydown\", function(ev){"
+    "$command.on(\"keydown\", function(ev){"
       "if (ev.key == \"ArrowUp\") {"
         "shellhpos = (shellhist.length + shellhpos - 1) % shellhist.length;"
-        "$(this).val(shellhist[shellhpos]);"
+        "$command.val(shellhist[shellhpos]);"
         "return false;"
       "}"
       "else if (ev.key == \"ArrowDown\") {"
         "shellhpos = (shellhist.length + shellhpos + 1) % shellhist.length;"
-        "$(this).val(shellhist[shellhpos]);"
+        "$command.val(shellhist[shellhpos]);"
+        "return false;"
+      "}"
+      "else if (ev.key == \"Escape\") {"
+        "shellhpos = 0;"
+        "$command.val('');"
         "return false;"
       "}"
       "else if (ev.key == \"PageUp\") {"
-        "var o = $(\"#output\");"
-        "o.scrollTop(o.scrollTop() - o.height());"
+        "$output.scrollTop($output.scrollTop() - $output.height());"
         "return false;"
       "}"
       "else if (ev.key == \"PageDown\") {"
-        "var o = $(\"#output\");"
-        "o.scrollTop(o.scrollTop() + o.height());"
+        "$output.scrollTop($output.scrollTop() + $output.height());"
         "return false;"
       "}"
+      "else if (ev.key == \"Home\") {"
+        "if ($command.get(0).selectionEnd == 0) {"
+          "$output.scrollTop(0);"
+        "}"
+      "}"
+      "else if (ev.key == \"End\") {"
+        "if ($command.get(0).selectionEnd == $command.get(0).value.length) {"
+          "$output.scrollTop($output.get(0).scrollHeight);"
+        "}"
+      "}"
     "});"
-    "$(\"#input-command\").focus();"
-    "</script>");
+    "$('#logmonitor').on('change', function(ev){ $command.focus(); });"
+    "$command.val(shellhist[shellhpos]||'').focus();"
+    "})()</script>");
 
   c.panel_end();
   PAGE_HOOK("body.post");
@@ -505,6 +547,7 @@ void OvmsWebServer::HandleCfgVehicle(PageEntry_t& p, PageContext_t& c)
 {
   std::string error, info;
   std::string vehicleid, vehicletype, vehiclename, timezone, timezone_region, units_distance, pin;
+  std::string bat12v_factor, bat12v_ref, bat12v_alert;
 
   if (c.method == "POST") {
     // process form submission:
@@ -514,6 +557,9 @@ void OvmsWebServer::HandleCfgVehicle(PageEntry_t& p, PageContext_t& c)
     timezone = c.getvar("timezone");
     timezone_region = c.getvar("timezone_region");
     units_distance = c.getvar("units_distance");
+    bat12v_factor = c.getvar("bat12v_factor");
+    bat12v_ref = c.getvar("bat12v_ref");
+    bat12v_alert = c.getvar("bat12v_alert");
     pin = c.getvar("pin");
 
     if (vehicleid.length() == 0)
@@ -537,6 +583,9 @@ void OvmsWebServer::HandleCfgVehicle(PageEntry_t& p, PageContext_t& c)
       MyConfig.SetParamValue("vehicle", "timezone", timezone);
       MyConfig.SetParamValue("vehicle", "timezone_region", timezone_region);
       MyConfig.SetParamValue("vehicle", "units.distance", units_distance);
+      MyConfig.SetParamValue("system.adc", "factor12v", bat12v_factor);
+      MyConfig.SetParamValue("vehicle", "12v.ref", bat12v_ref);
+      MyConfig.SetParamValue("vehicle", "12v.alert", bat12v_alert);
       if (!pin.empty())
         MyConfig.SetParamValue("password", "pin", pin);
 
@@ -562,12 +611,24 @@ void OvmsWebServer::HandleCfgVehicle(PageEntry_t& p, PageContext_t& c)
     timezone = MyConfig.GetParamValue("vehicle", "timezone");
     timezone_region = MyConfig.GetParamValue("vehicle", "timezone_region");
     units_distance = MyConfig.GetParamValue("vehicle", "units.distance");
+    bat12v_factor = MyConfig.GetParamValue("system.adc", "factor12v");
+    bat12v_ref = MyConfig.GetParamValue("vehicle", "12v.ref");
+    bat12v_alert = MyConfig.GetParamValue("vehicle", "12v.alert");
     c.head(200);
   }
 
   // generate form:
   c.panel_start("primary", "Vehicle configuration");
   c.form_start(p.uri);
+
+  c.print(
+    "<ul class=\"nav nav-tabs\">"
+      "<li class=\"active\"><a data-toggle=\"tab\" href=\"#tab-vehicle\">Vehicle</a></li>"
+      "<li><a data-toggle=\"tab\" href=\"#tab-bat12v\">12V Monitor</a></li>"
+    "</ul>"
+    "<div class=\"tab-content\">"
+      "<div id=\"tab-vehicle\" class=\"tab-pane fade in active section-vehicle\">");
+
   c.input_select_start("Vehicle type", "vehicletype");
   c.input_select_option("&mdash;", "", vehicletype.empty());
   for (OvmsVehicleFactory::map_vehicle_t::iterator k=MyVehicleFactory.m_vmap.begin(); k!=MyVehicleFactory.m_vmap.end(); ++k)
@@ -602,31 +663,72 @@ void OvmsWebServer::HandleCfgVehicle(PageEntry_t& p, PageContext_t& c)
   c.input_radiobtn_end();
   c.input_password("PIN", "pin", "", "empty = no change",
     "<p>Vehicle PIN code used for unlocking etc.</p>", "autocomplete=\"section-vehiclepin new-password\"");
+
+  c.print(
+      "</div>"
+      "<div id=\"tab-bat12v\" class=\"tab-pane fade section-bat12v\">");
+
+  c.input_info("12V reading",
+      "<div class=\"receiver clearfix\">"
+        "<div class=\"metric number\" id=\"display-bat12v_voltage\">"
+          "<span class=\"value\">?</span>"
+          "<span class=\"unit\">V</span>"
+        "</div>"
+      "</div>");
+  c.input_slider("12V calibration", "bat12v_factor", 6, NULL,
+    -1, bat12v_factor.empty() ? 195.7 : atof(bat12v_factor.c_str()), 195.7, 175.0, 225.0, 0.1,
+    "<p>Adjust the calibration so the voltage displayed above matches your real voltage.</p>");
+
+  c.input("number", "12V reference", "bat12v_ref", bat12v_ref.c_str(), "Default: 12.6",
+    "<p>The nominal resting voltage level of your 12V battery when fully charged.</p>",
+    "min=\"10\" max=\"15\" step=\"0.1\"", "V");
+  c.input("number", "12V alert threshold", "bat12v_alert", bat12v_alert.c_str(), "Default: 1.6",
+    "<p>If the actual voltage drops this far below the maximum of configured and measured reference"
+    " level, an alert is sent.</p>",
+    "min=\"0\" max=\"3\" step=\"0.1\"", "V");
+
+  c.print(
+      "</div>"
+    "</div>"
+    "<br>");
+
   c.input_button("default", "Save");
   c.form_end();
   c.panel_end();
 
   c.print(
     "<script>"
-    "$.getJSON(\"" URL_ASSETS_ZONES_JSON "\", function(data) {"
-      "var items = [];"
-      "var region = $('#input-timezone_region').val();"
-      "$.each(data, function(key, val) {"
-        "items.push('<option data-tz=\"' + val + '\"' + (key==region ? ' selected' : '') + '>' + key + '</option>');"
+    "(function(){"
+      "$.getJSON(\"" URL_ASSETS_ZONES_JSON "\", function(data) {"
+        "var items = [];"
+        "var region = $('#input-timezone_region').val();"
+        "$.each(data, function(key, val) {"
+          "items.push('<option data-tz=\"' + val + '\"' + (key==region ? ' selected' : '') + '>' + key + '</option>');"
+        "});"
+        "$('#input-timezone_select').append(items.join(''));"
+        "$('#input-timezone_select').on('change', function(ev){"
+          "var opt = $(this).find('option:selected');"
+          "$('#input-timezone_region').val(opt.val());"
+          "var tz = opt.data(\"tz\");"
+          "if (tz) {"
+            "$('#input-timezone').val(tz);"
+            "$('#input-timezone').prop('readonly', true);"
+          "} else {"
+            "$('#input-timezone').prop('readonly', false);"
+          "}"
+        "}).trigger('change');"
       "});"
-      "$('#input-timezone_select').append(items.join(''));"
-      "$('#input-timezone_select').on('change', function(ev){"
-        "var opt = $(this).find('option:selected');"
-        "$('#input-timezone_region').val(opt.val());"
-        "var tz = opt.data(\"tz\");"
-        "if (tz) {"
-          "$('#input-timezone').val(tz);"
-          "$('#input-timezone').prop('readonly', true);"
-        "} else {"
-          "$('#input-timezone').prop('readonly', false);"
-        "}"
-      "}).trigger('change');"
-    "});"
+      "var $bat12v_factor = $('#input-bat12v_factor'),"
+        "$bat12v_display = $('#display-bat12v_voltage .value'),"
+        "oldfactor = $bat12v_factor.val() || 195.7;"
+      "var updatecalib = function(){"
+        "var newfactor = $bat12v_factor.val() || 195.7;"
+        "var voltage = metrics['v.b.12v.voltage'] * oldfactor / newfactor;"
+        "$bat12v_display.text(Number(voltage).toFixed(2));"
+      "};"
+      "$bat12v_factor.on(\"input change\", updatecalib);"
+      "$(\".receiver\").on(\"msg:metrics\", updatecalib).trigger(\"msg:metrics\");"
+    "})()"
     "</script>");
 
   c.done();
@@ -639,14 +741,15 @@ void OvmsWebServer::HandleCfgVehicle(PageEntry_t& p, PageContext_t& c)
  */
 void OvmsWebServer::HandleCfgModem(PageEntry_t& p, PageContext_t& c)
 {
-  std::string apn, apn_user, apn_pass, network_dns;
-  bool enable_gps, enable_gpstime, enable_net, enable_sms;
+  std::string apn, apn_user, apn_pass, network_dns, pincode;
+  bool enable_gps, enable_gpstime, enable_net, enable_sms, wrongpincode;
 
   if (c.method == "POST") {
     // process form submission:
     apn = c.getvar("apn");
     apn_user = c.getvar("apn_user");
     apn_pass = c.getvar("apn_pass");
+    pincode = c.getvar("pincode");
     network_dns = c.getvar("network_dns");
     enable_net = (c.getvar("enable_net") == "yes");
     enable_sms = (c.getvar("enable_sms") == "yes");
@@ -656,6 +759,12 @@ void OvmsWebServer::HandleCfgModem(PageEntry_t& p, PageContext_t& c)
     MyConfig.SetParamValue("modem", "apn", apn);
     MyConfig.SetParamValue("modem", "apn.user", apn_user);
     MyConfig.SetParamValue("modem", "apn.password", apn_pass);
+    if ( MyConfig.GetParamValueBool("modem","wrongpincode") && (MyConfig.GetParamValue("modem","pincode") != pincode) )
+      {
+      ESP_LOGI(TAG,"New SIM card PIN code entered. Cleared wrong_pin_code flag");
+      MyConfig.SetParamValueBool("modem", "wrongpincode", false);
+      }
+    MyConfig.SetParamValue("modem", "pincode", pincode);
     MyConfig.SetParamValue("network", "dns", network_dns);
     MyConfig.SetParamValueBool("modem", "enable.net", enable_net);
     MyConfig.SetParamValueBool("modem", "enable.sms", enable_sms);
@@ -673,6 +782,8 @@ void OvmsWebServer::HandleCfgModem(PageEntry_t& p, PageContext_t& c)
   apn = MyConfig.GetParamValue("modem", "apn");
   apn_user = MyConfig.GetParamValue("modem", "apn.user");
   apn_pass = MyConfig.GetParamValue("modem", "apn.password");
+  pincode = MyConfig.GetParamValue("modem", "pincode");
+  wrongpincode = MyConfig.GetParamValueBool("modem", "wrongpincode",false);
   network_dns = MyConfig.GetParamValue("network", "dns");
   enable_net = MyConfig.GetParamValueBool("modem", "enable.net", true);
   enable_sms = MyConfig.GetParamValueBool("modem", "enable.sms", true);
@@ -707,6 +818,8 @@ void OvmsWebServer::HandleCfgModem(PageEntry_t& p, PageContext_t& c)
       "</script>";
   }
   c.input_info("SIM ICCID", info.c_str());
+  c.input_text("SIM card PIN code", "pincode", pincode.c_str(), "", 
+    wrongpincode ? "<p style=\"color: red\">Wrong PIN code entered previously!</p>" : "<p>Not needed for Hologram SIM cards</p>");
 
   c.fieldset_start("Internet");
   c.input_checkbox("Enable IP networking", "enable_net", enable_net);
@@ -727,6 +840,430 @@ void OvmsWebServer::HandleCfgModem(PageEntry_t& p, PageContext_t& c)
   c.hr();
   c.input_button("default", "Save");
   c.form_end();
+  c.panel_end();
+  c.done();
+}
+#endif
+
+
+/**
+ * HandleCfgNotification: Configure notifications (URL /cfg/notifications)
+ */
+#ifdef CONFIG_OVMS_COMP_PUSHOVER
+void OvmsWebServer::HandleCfgNotification(PageEntry_t& p, PageContext_t& c)
+{
+  std::string error;
+  OvmsConfigParam* param = MyConfig.CachedParam("pushover");
+  ConfigParamMap pmap;
+  int i, max;
+  char buf[100];
+  std::string name, msg, pri;
+
+  if (c.method == "POST") {
+    // process form submission:
+    pmap["enable"] = (c.getvar("enable") == "yes") ? "yes" : "no";
+    pmap["user_key"] = c.getvar("user_key");
+    pmap["token"] = c.getvar("token");
+
+    // validate:
+    //if (server.length() == 0)
+    //  error += "<li data-input=\"server\">Server must not be empty</li>";
+    if (pmap["enable"]=="yes")
+      {
+      if (pmap["user_key"].length() == 0)
+        error += "<li data-input=\"user_key\">User key must not be empty</li>";
+      if (pmap["user_key"].find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789") != std::string::npos)
+        error += "<li data-input=\"user_key\">User key may only contain lower case ASCII letters and digits</li>";
+      if (pmap["token"].length() == 0)
+        error += "<li data-input=\"token\">Token must not be empty</li>";
+      if (pmap["token"].find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789") != std::string::npos)
+        error += "<li data-input=\"user_key\">Token may only contain lower case ASCII letters and digits</li>";
+      }
+
+    pmap["sound.normal"] = c.getvar("sound.normal");
+    pmap["sound.high"] = c.getvar("sound.high");
+    pmap["sound.emergency"] = c.getvar("sound.emergency");
+    pmap["expire"] = c.getvar("expire");
+    pmap["retry"] = c.getvar("retry");
+
+    // read notification type/subtypes and their priorities
+    max = atoi(c.getvar("npmax").c_str());
+    for (i = 1; i <= max; i++) {
+      sprintf(buf, "nfy_%d", i);
+      name = c.getvar(buf);
+      if (name == "") continue;
+      sprintf(buf, "np_%d", i);
+      pri = c.getvar(buf);
+      if (pri == "") continue;
+      snprintf(buf, sizeof(buf), "np.%s", name.c_str());
+      pmap[buf] = pri;
+    }
+
+    // read events, their messages and priorities
+    max = atoi(c.getvar("epmax").c_str());
+    for (i = 1; i <= max; i++) {
+      sprintf(buf, "en_%d", i);
+      name = c.getvar(buf);
+      if (name == "") continue;
+      sprintf(buf, "em_%d", i);
+      msg = c.getvar(buf);
+      sprintf(buf, "ep_%d", i);
+      pri = c.getvar(buf);
+      if (pri == "") continue;
+      snprintf(buf, sizeof(buf), "ep.%s", name.c_str());
+      pri.append("/");
+      pri.append(msg);
+      pmap[buf] = pri;
+    }
+   
+    if (error == "") {
+      if (c.getvar("action") == "save")
+        {
+        // save:
+        param->m_map.clear();
+        param->m_map = std::move(pmap);
+        param->Save();
+
+        c.head(200);
+        c.alert("success", "<p class=\"lead\">Pushover connection configured.</p>");
+        OutputHome(p, c);
+        c.done();
+        return;        
+        }
+      else if (c.getvar("action") == "test")
+        {
+        std::string reply;
+        std::string popup;
+        c.head(200);
+        c.alert("success", "<p class=\"lead\">Sending message</p>");
+        if (!MyPushoverClient.SendMessageOpt(
+            c.getvar("user_key"),
+            c.getvar("token"),
+            c.getvar("test_message"),
+            atoi(c.getvar("test_priority").c_str()),
+            c.getvar("test_sound"), 
+            atoi(c.getvar("retry").c_str()),
+            atoi(c.getvar("expire").c_str()),
+            true /* receive server reply as reply/pushover-type notification */ ))
+          {
+          c.alert("danger", "<p class=\"lead\">Could not send test message!</p>");
+          }
+        }
+    } 
+    else {
+      // output error, return to form:
+      error = "<p class=\"lead\">Error!</p><ul class=\"errorlist\">" + error + "</ul>";
+      c.head(400);
+      c.alert("danger", error.c_str());
+    }
+
+  }
+  else {
+    // read configuration:
+    pmap = param->m_map;
+
+    // generate form:
+    c.head(200);
+  }
+
+  c.panel_start("primary", "Pushover server configuration");
+  c.form_start(p.uri);
+
+  c.printf("<div><p>Please visit <a href=\"https://pushover.net\">Pushover web site</a> to create an account (identified by a <b>user key</b>) "
+    " and then register OVMS as an application in order to receive an application <b>token</b>).<br>"
+    "Install Pushover iOS/Android application and specify your user key. <br>Finally enter both the user key and the application token here and test connectivity.<br>"
+    "To receive specific notifications and events, configure them below.</p></div>" );
+
+  c.input_checkbox("Enable Pushover connectivity", "enable", pmap["enable"] == "yes");
+  c.input_text("User key", "user_key", pmap["user_key"].c_str(), "Enter user key (alphanumerical key consisting of around 30 characters");
+  c.input_text("Token", "token", pmap["token"].c_str(), "Enter token (alphanumerical key consisting of around 30 characters");
+
+  auto gen_options_priority = [&c](std::string priority) {
+    c.printf(
+        "<option value=\"-2\" %s>Lowest</option>"
+        "<option value=\"-1\" %s>Low</option>"
+        "<option value=\"0\" %s>Normal</option>"
+        "<option value=\"1\" %s>High</option>"
+        "<option value=\"2\" %s>Emergency</option>"
+      , (priority=="-2") ? "selected" : ""
+      , (priority=="-1") ? "selected" : ""
+      , (priority=="0"||priority=="") ? "selected" : ""
+      , (priority=="1") ? "selected" : ""
+      , (priority=="2") ? "selected" : "");
+  };
+
+  auto gen_options_sound = [&c](std::string sound) {
+    c.printf(
+        "<option value=\"pushover\" %s>Pushover (default)</option>"
+        "<option value=\"bike\" %s>Bike</option>"
+        "<option value=\"bugle\" %s>Bugle</option>"
+        "<option value=\"cashregister\" %s>Cashregister</option>"
+        "<option value=\"classical\" %s>Classical</option>"
+        "<option value=\"cosmic\" %s>Cosmic</option>"
+        "<option value=\"falling\" %s>Falling</option>"
+        "<option value=\"gamelan\" %s>Gamelan</option>"
+        "<option value=\"incoming\" %s>Incoming</option>"
+        "<option value=\"intermission\" %s>Intermission</option>"
+        "<option value=\"magic\" %s>Magic</option>"
+        "<option value=\"mechanical\" %s>Mechanical</option>"
+        "<option value=\"pianobar\" %s>Piano bar</option>"
+        "<option value=\"siren\" %s>Siren</option>"
+        "<option value=\"spacealarm\" %s>Space alarm</option>"
+        "<option value=\"tugboat\" %s>Tug boat</option>"
+        "<option value=\"alien\" %s>Alien alarm (long)</option>"
+        "<option value=\"climb\" %s>Climb (long)</option>"
+        "<option value=\"persistent\" %s>Persistent (long)</option>"
+        "<option value=\"echo\" %s>Pushover Echo (long)</option>"
+        "<option value=\"updown\" %s>Up Down (long)</option>"
+        "<option value=\"none\" %s>None (silent)</option>"
+      , (sound=="pushover") || (sound=="") ? "selected" : ""
+      , (sound=="bike") ? "selected" : ""
+      , (sound=="bugle") ? "selected" : ""
+      , (sound=="cashregister") ? "selected" : ""
+      , (sound=="classical") ? "selected" : ""
+      , (sound=="cosmic") ? "selected" : ""
+      , (sound=="falling") ? "selected" : ""
+      , (sound=="gamelan") ? "selected" : ""
+      , (sound=="incoming") ? "selected" : ""
+      , (sound=="intermission") ? "selected" : ""
+      , (sound=="magic") ? "selected" : ""
+      , (sound=="mechanical") ? "selected" : ""
+      , (sound=="pianobar") ? "selected" : ""
+      , (sound=="siren") ? "selected" : ""
+      , (sound=="spacealarm") ? "selected" : ""
+      , (sound=="tugboat") ? "selected" : ""
+      , (sound=="alien") ? "selected" : ""
+      , (sound=="climb") ? "selected" : ""
+      , (sound=="persistent") ? "selected" : ""
+      , (sound=="echo") ? "selected" : ""
+      , (sound=="updown") ? "selected" : ""
+      , (sound=="none") ? "selected" : "");
+  };
+
+  c.input_select_start("Normal priority sound", "sound.normal");
+  gen_options_sound(pmap["sound.normal"]);
+  c.input_select_end();
+  c.input_select_start("High priority sound", "sound.high");
+  gen_options_sound(pmap["sound.high"]);
+  c.input_select_end();
+  c.input_select_start("Emergency priority sound", "sound.emergency");
+  gen_options_sound(pmap["sound.emergency"]);
+  c.input_select_end();
+
+  c.input("number", "Retry", "retry", pmap["retry"].c_str(), "Default: 30",
+    "<p>Time period after which new notification is sent if emergency priority message is not acknowledged.</p>",
+    "min=\"30\" step=\"1\"", "secs");
+  c.input("number", "Expiration", "expire", pmap["expire"].c_str(), "Default: 1800",
+    "<p>Time period after an emergency priority message will expire (and will not cause a new notification) if the message is not acknowledged.</p>",
+    "min=\"0\" step=\"1\"", "secs");
+
+  // Test message area
+  c.print(
+    "<div class=\"form-group\">"
+    "<label class=\"control-label col-sm-3\">Test connection</label>"
+    "<div class=\"col-sm-9\">"
+      "<div class=\"table-responsive\">"
+        "<table class=\"table\">"
+          "<tbody>"
+            "<tr>"
+              "<td width=\"40%\">");
+
+  c.input_text("Message", "test_message", c.getvar("test_message").c_str(), "Enter test message");
+  c.print("</td><td width=\"25%\">");
+  c.input_select_start("Priority", "test_priority");
+  gen_options_priority(c.getvar("test_priority") != "" ? c.getvar("test_priority") : "0");
+  c.input_select_end();
+  c.print("</td><td width=\"25%\">");
+
+  c.input_select_start("Sound", "test_sound");
+  gen_options_sound( c.getvar("test_sound") != "" ? c.getvar("test_sound").c_str() : pmap["sound.normal"]);
+  c.input_select_end();
+  c.print("</td><td width=\"10%\">");
+  c.input_button("default", "Send", "action", "test");
+  c.printf(
+          "</td></tr>"
+        "</tbody>"
+      "</table>"
+    "</div>"
+    "</div>"
+    "</div>");
+
+
+  // Input area for Notifications
+  c.print(
+    "<div class=\"form-group\">"
+    "<label class=\"control-label col-sm-3\">Notification filtering</label>"
+    "<div class=\"col-sm-9\">"
+      "<div class=\"table-responsive\">"
+        "<table class=\"table\">"
+          "<thead>"
+            "<tr>"
+              "<th width=\"10%\"></th>"
+              "<th width=\"45%\">Type/Subtype</th>"
+              "<th width=\"45%\">Priority</th>"
+            "</tr>"
+          "</thead>"
+          "<tbody>");
+
+
+  max = 0;
+  for (auto &kv: pmap) {
+    if (!startsWith(kv.first, "np."))
+      continue;
+    max++;
+    name = kv.first.substr(3);
+    c.printf(
+          "<tr>"
+            "<td><button type=\"button\" class=\"btn btn-danger\" onclick=\"delRow(this)\"><strong>✖</strong></button></td>"
+            "<td><input type=\"text\" class=\"form-control\" name=\"nfy_%d\" value=\"%s\" placeholder=\"Enter notification type/subtype\""
+              " autocomplete=\"section-notification-type\"></td>"
+            "<td width=\"20%\"><select class=\"form-control\" name=\"np_%d\" size=\"1\">"
+      , max, _attr(name)
+      , max);
+    gen_options_priority(kv.second);
+    c.print(
+            "</select></td>"
+          "</tr>");
+  }
+
+  c.printf(
+          "<tr>"
+            "<td><button type=\"button\" class=\"btn btn-success\" onclick=\"addRow_nfy(this)\"><strong>✚</strong></button></td>"
+            "<td></td>"
+            "<td></td>"
+          "</tr>"
+        "</tbody>"
+      "</table>"
+      "<input type=\"hidden\" name=\"npmax\" value=\"%d\">"
+    "</div>"
+    "<p>Enter the type of notification (for example <i>\"alert\"</i> or <i>\"info\"</i>) or more specifically the type/subtype tuple (for example <i>\"alert/alarm.sounding\"</i>). "
+    " If a notification matches multiple filters, only the more specific will be used. "
+    "For more complete listing, see <a href=\"https://docs.openvehicles.com/en/latest/userguide/notifications.html\">OVMS User Guide</a></p>"
+    "</div>"
+    "</div>"
+    , max);
+
+
+  // Input area for Events
+  c.print(
+    "<div class=\"form-group\">"
+    "<label class=\"control-label col-sm-3\">Event filtering</label>"
+    "<div class=\"col-sm-9\">"
+      "<div class=\"table-responsive\">"
+        "<table class=\"table\">"
+          "<thead>"
+            "<tr>"
+              "<th width=\"10%\"></th>"
+              "<th width=\"20%\">Event</th>"
+              "<th width=\"55%\">Message</th>"
+              "<th width=\"15%\">Priority</th>"
+            "</tr>"
+          "</thead>"
+          "<tbody>");
+
+
+  max = 0;
+  for (auto &kv: pmap) {
+    if (!startsWith(kv.first, "ep."))
+      continue;
+    max++;
+    // Priority and message is saved as "priority/message" tuple (eg. "-1/this is a message")
+    name = kv.first.substr(3);
+    if (kv.second[1]=='/') {
+      pri = kv.second.substr(0,1);
+      msg = kv.second.substr(2);
+    } else
+    if (kv.second[2]=='/') {
+      pri = kv.second.substr(0,2);
+      msg = kv.second.substr(3);
+    } else continue;
+    c.printf(
+          "<tr>"
+            "<td><button type=\"button\" class=\"btn btn-danger\" onclick=\"delRow(this)\"><strong>✖</strong></button></td>"
+            "<td><input type=\"text\" class=\"form-control\" name=\"en_%d\" value=\"%s\" placeholder=\"Enter event name\""
+              " autocomplete=\"section-event-name\"></td>"
+            "<td><input type=\"text\" class=\"form-control\" name=\"em_%d\" value=\"%s\" placeholder=\"Enter message\""
+              " autocomplete=\"section-event-message\"></td>"
+            "<td><select class=\"form-control\" name=\"ep_%d\" size=\"1\">"
+      , max, _attr(name)
+      , max, _attr(msg)
+      , max);
+    gen_options_priority(pri);
+    c.print(
+            "</select></td>"
+          "</tr>");
+  }
+
+  c.printf(
+          "<tr>"
+            "<td><button type=\"button\" class=\"btn btn-success\" onclick=\"addRow_ev(this)\"><strong>✚</strong></button></td>"
+            "<td></td>"
+            "<td></td>"
+          "</tr>"
+        "</tbody>"
+      "</table>"
+      "<input type=\"hidden\" name=\"epmax\" value=\"%d\">"
+    "</div>"
+    "<p>Enter the event name (for example <i>\"vehicle.locked\"</i> or <i>\"vehicle.alert.12v.on\"</i>). "
+    "For more complete listing, see <a href=\"https://docs.openvehicles.com/en/latest/userguide/events.html\">OVMS User Guide</a></p>"
+    "</div>"
+    "</div>"
+    , max);
+
+
+  c.input_button("default", "Save","action","save");
+  c.form_end();
+
+  c.print(
+    "<script>"
+    "function delRow(el){"
+      "$(el).parent().parent().remove();"
+    "}"
+    "function addRow_nfy(el){"
+      "var counter = $('input[name=npmax]');"
+      "var nr = Number(counter.val()) + 1;"
+      "var row = $('"
+          "<tr>"
+            "<td><button type=\"button\" class=\"btn btn-danger\" onclick=\"delRow(this)\"><strong>✖</strong></button></td>"
+            "<td><input type=\"text\" class=\"form-control\" name=\"nfy_' + nr + '\" placeholder=\"Enter type/subtype\""
+              " autocomplete=\"section-notification-type\"></td>"
+            "<td><select class=\"form-control\" name=\"np_' + nr + '\" size=\"1\">"
+              "<option value=\"-2\">Lowest</option>"
+              "<option value=\"-1\">Low</option>"
+              "<option value=\"0\" selected>Normal</option>"
+              "<option value=\"1\">High</option>"
+              "<option value=\"2\">Emergency</option>"
+            "</select></td>"
+          "</tr>"
+        "');"
+      "$(el).parent().parent().before(row).prev().find(\"input\").first().focus();"
+      "counter.val(nr);"
+    "}"
+    "function addRow_ev(el){"
+      "var counter = $('input[name=epmax]');"
+      "var nr = Number(counter.val()) + 1;"
+      "var row = $('"
+          "<tr>"
+            "<td><button type=\"button\" class=\"btn btn-danger\" onclick=\"delRow(this)\"><strong>✖</strong></button></td>"
+            "<td><input type=\"text\" class=\"form-control\" name=\"en_' + nr + '\" placeholder=\"Enter event name\""
+              " autocomplete=\"section-event-name\"></td>"
+            "<td><input type=\"text\" class=\"form-control\" name=\"em_' + nr + '\" placeholder=\"Enter message\""
+              " autocomplete=\"section-event-message\"></td>"
+            "<td><select class=\"form-control\" name=\"ep_' + nr + '\" size=\"1\">"
+              "<option value=\"-2\">Lowest</option>"
+              "<option value=\"-1\">Low</option>"
+              "<option value=\"0\" selected>Normal</option>"
+              "<option value=\"1\">High</option>"
+              "<option value=\"2\">Emergency</option>"
+            "</select></td>"
+          "</tr>"
+        "');"
+      "$(el).parent().parent().before(row).prev().find(\"input\").first().focus();"
+      "counter.val(nr);"
+    "}"
+    "</script>");
+
+
   c.panel_end();
   c.done();
 }
@@ -1255,6 +1792,10 @@ void OvmsWebServer::HandleCfgAutoInit(PageEntry_t& p, PageContext_t& c)
   std::string error, warn;
   bool init, ext12v, modem, server_v2, server_v3, scripting;
   bool dbc;
+  #ifdef CONFIG_OVMS_COMP_MAX7317
+    bool egpio;
+    std::string egpio_ports;
+  #endif //CONFIG_OVMS_COMP_MAX7317
   std::string vehicle_type, obd2ecu, wifi_mode, wifi_ssid_client, wifi_ssid_ap;
 
   if (c.method == "POST") {
@@ -1262,6 +1803,10 @@ void OvmsWebServer::HandleCfgAutoInit(PageEntry_t& p, PageContext_t& c)
     init = (c.getvar("init") == "yes");
     dbc = (c.getvar("dbc") == "yes");
     ext12v = (c.getvar("ext12v") == "yes");
+    #ifdef CONFIG_OVMS_COMP_MAX7317
+      egpio = (c.getvar("egpio") == "yes");
+      egpio_ports = c.getvar("egpio_ports");
+    #endif //CONFIG_OVMS_COMP_MAX7317
     modem = (c.getvar("modem") == "yes");
     server_v2 = (c.getvar("server_v2") == "yes");
     server_v3 = (c.getvar("server_v3") == "yes");
@@ -1311,6 +1856,10 @@ void OvmsWebServer::HandleCfgAutoInit(PageEntry_t& p, PageContext_t& c)
       MyConfig.SetParamValueBool("auto", "init", init);
       MyConfig.SetParamValueBool("auto", "dbc", dbc);
       MyConfig.SetParamValueBool("auto", "ext12v", ext12v);
+      #ifdef CONFIG_OVMS_COMP_MAX7317
+        MyConfig.SetParamValueBool("auto", "egpio", egpio);
+        MyConfig.SetParamValue("egpio", "monitor.ports", egpio_ports);
+      #endif //CONFIG_OVMS_COMP_MAX7317
       MyConfig.SetParamValueBool("auto", "modem", modem);
       MyConfig.SetParamValueBool("auto", "server.v2", server_v2);
       MyConfig.SetParamValueBool("auto", "server.v3", server_v3);
@@ -1345,6 +1894,10 @@ void OvmsWebServer::HandleCfgAutoInit(PageEntry_t& p, PageContext_t& c)
     init = MyConfig.GetParamValueBool("auto", "init", true);
     dbc = MyConfig.GetParamValueBool("auto", "dbc", false);
     ext12v = MyConfig.GetParamValueBool("auto", "ext12v", false);
+    #ifdef CONFIG_OVMS_COMP_MAX7317
+      egpio = MyConfig.GetParamValueBool("auto", "egpio", false);
+      egpio_ports = MyConfig.GetParamValue("egpio", "monitor.ports");
+    #endif //CONFIG_OVMS_COMP_MAX7317
     modem = MyConfig.GetParamValueBool("auto", "modem", false);
     server_v2 = MyConfig.GetParamValueBool("auto", "server.v2", false);
     server_v3 = MyConfig.GetParamValueBool("auto", "server.v3", false);
@@ -1373,6 +1926,13 @@ void OvmsWebServer::HandleCfgAutoInit(PageEntry_t& p, PageContext_t& c)
 
   c.input_checkbox("Autoload DBC files", "dbc", dbc,
     "<p>Enable to autoload DBC files (for reverse engineering).</p>");
+
+  #ifdef CONFIG_OVMS_COMP_MAX7317
+    c.input_checkbox("Start EGPIO monitor", "egpio", egpio,
+      "<p>Enable to monitor EGPIO input ports and generate metrics and events from changes.</p>");
+    c.input_text("EGPIO ports", "egpio_ports", egpio_ports.c_str(), "Ports to monitor",
+      "<p>Enter list of port numbers (0…9) to monitor, separated by spaces.</p>");
+  #endif //CONFIG_OVMS_COMP_MAX7317
 
   c.input_checkbox("Power on external 12V", "ext12v", ext12v,
     "<p>Enable to provide 12V to external devices connected to the module (i.e. ECU displays).</p>");
@@ -1823,6 +2383,8 @@ void OvmsWebServer::HandleCfgLogging(PageEntry_t& p, PageContext_t& c)
       pmap["file.maxsize"] = c.getvar("file_maxsize");
     if (c.getvar("file_keepdays") != "")
       pmap["file.keepdays"] = c.getvar("file_keepdays");
+    if (c.getvar("file_syncperiod") != "")
+      pmap["file.syncperiod"] = c.getvar("file_syncperiod");
 
     file_path = c.getvar("file_path");
     pmap["file.path"] = file_path;
@@ -1893,6 +2455,9 @@ void OvmsWebServer::HandleCfgLogging(PageEntry_t& p, PageContext_t& c)
   }
   c.input_info("Download", download.c_str());
 
+  c.input("number", "Sync period", "file_syncperiod", pmap["file.syncperiod"].c_str(), "Default: 3",
+    "<p>How often to flush log buffer to SD: 0 = never/auto, &lt;0 = every n messages, &gt;0 = after n/2 seconds idle</p>",
+    "min=\"-1\" step=\"1\"");
   c.input("number", "Max file size", "file_maxsize", pmap["file.maxsize"].c_str(), "Default: 1024",
     "<p>When exceeding the size, the log will be archived suffixed with date &amp; time and a new file will be started. 0 = disable</p>",
     "min=\"0\" step=\"1\"", "kB");
