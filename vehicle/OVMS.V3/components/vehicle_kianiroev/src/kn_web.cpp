@@ -65,32 +65,23 @@ void OvmsVehicleKiaNiroEv::WebCfgFeatures(PageEntry_t& p, PageContext_t& c)
 {
   std::string error;
   bool canwrite;
-<<<<<<< HEAD
   bool tripdata;
-  if (c.method == "POST") {
-    // process form submission:
-    canwrite = (c.getvar("canwrite") == "yes");
-    tripdata = (c.getvar("tripdata") == "yes");
-    if (error == "") {
-      // store:
-      MyConfig.SetParamValueBool("xkn", "canwrite", canwrite);
-      MyConfig.SetParamValueBool("xkn", "tripdata", tripdata);
-=======
   bool consoleKilometers;
   bool leftDrive;
 
   if (c.method == "POST") {
     // process form submission:
     canwrite = (c.getvar("canwrite") == "yes");
+    tripdata = (c.getvar("tripdata") == "yes");
     consoleKilometers = (c.getvar("consoleKilometers") == "yes");
     leftDrive = (c.getvar("leftDrive") == "yes");
-
     if (error == "") {
       // store:
       MyConfig.SetParamValueBool("xkn", "canwrite", canwrite);
+      MyConfig.SetParamValueBool("xkn", "tripdata", tripdata);
       MyConfig.SetParamValueBool("xkn", "consoleKilometers", consoleKilometers);
       MyConfig.SetParamValueBool("xkn", "leftDrive", leftDrive);
->>>>>>> 1b99eb7014c054d9d630c85437d62f3a8f2e204f
+
 
       c.head(200);
       c.alert("success", "<p class=\"lead\">Kia Niro / Hyundai Kona EV feature configuration saved.</p>");
@@ -107,13 +98,13 @@ void OvmsVehicleKiaNiroEv::WebCfgFeatures(PageEntry_t& p, PageContext_t& c)
   else {
     // read configuration:
     canwrite = MyConfig.GetParamValueBool("xkn", "canwrite", false);
-<<<<<<< HEAD
+
     tripdata = MyConfig.GetParamValueBool("xkn", "tripdata", false);
-=======
+
     consoleKilometers = MyConfig.GetParamValueBool("xkn", "consoleKilometers", true);
     leftDrive = MyConfig.GetParamValueBool("xkn", "leftDrive", true);
 
->>>>>>> 1b99eb7014c054d9d630c85437d62f3a8f2e204f
+
     c.head(200);
   }
 
