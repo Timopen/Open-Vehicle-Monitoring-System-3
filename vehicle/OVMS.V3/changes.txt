@@ -1,6 +1,53 @@
 Open Vehicle Monitor System v3 - Change log
 
 ????-??-?? ???  ???????  OTA release
+
+2020-04-03 MWJ  3.2.011 OTA release
+- #327 Tesla Roadster: Vehicle AWAKE metric not correct
+- #311 OvmsEvents::ScheduleEvent with delay_ms < 10
+- #333 Support for SSL/TLS Trusted Certificate Authorities
+- #334 Support for SSL/TLS MQTT connections in Server v3
+- #335 Support for SSL/TLS MQTT connections in Server v2
+- #338 SSL/TLS maximum segment size forced to 2048 bytes
+- #341 Support paranoid mode in server v2
+- #343 TPMS message has no -1 setting for "disable" in ovms_server_v2.cpp
+- #342 OTA updates available (when not on wifi)
+- #351 Tesla Model S: Spurious vehicle idle alerts after vehicle firmware update
+
+2020-02-03 MWJ  3.2.010 OTA release
+- EGPIO: address multiple ports by input & output command
+- SmartED: issue #293 fixed
+  change savestatus from store to sd
+  Add ecoscore system to drive report and web interface like defunct smart web app. (added by frantek)
+- New command: "vfs df" -- show disk usage
+- Scripting API: added VFS.Load() & VFS.Save()
+- Scripting API: renamed HTTP.request() to HTTP.Request() for API consistency
+- Scripting API: added OvmsMetrics.GetValues()
+- Web UI: editor extended by embedded Javascript evaluation
+- Webserver: /api/execute: support for Javascript evaluation
+- Scripting API: added OvmsConfig.GetValues() & OvmsConfig.SetValues()
+- Config: added dedicated "usr" param for plugin configurations
+- Scripting API: HTTP.request() added
+- SmartED: add BMS diagnose report
+  New commands:
+    xse rptdata     get a Battery Status Report
+    xse bmsdiag     get Battery Diagnose Report
+- #225 Fix charge duration display in iOS App
+- #228 AutoFlashSD cleanup ovms3.done before rename
+- #293 Event queue overflow on startup
+- #299 Fix Tesla Roadster vehicle type for 2012 cars
+- #328 Tesla Roadster: Vehicle AWAKE metric not correct
+
+2019-12-13 MWJ  3.2.008  OTA release
+- Add support for 8MB PSRAM (in addition to current 4MB support)
+- Improvements to CAN driver, relating to obd2hud
+- Nissan Leaf: 40kWh option
+
+2019-12-09 MWJ  3.2.007  OTA release
+- Minor change to web sheel (to decode line breaks in log messages)
+- Javascript: Conduct garbage collection per minute, to reduce memory consumption
+
+2019-11-30 MWJ  3.2.006  OTA release
 - 12V Monitor: web UI calibration aid & configuration
 - EGPIO/MAX7317: port input monitoring, metrics, events, documentation
   New commands:
