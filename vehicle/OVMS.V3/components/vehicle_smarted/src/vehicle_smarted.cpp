@@ -39,18 +39,17 @@ static const char *TAG = "v-smarted";
 #include <string>
 #include <iomanip>
 #include "pcp.h"
-#include "ovms_metrics.h"
 #include "ovms_events.h"
-#include "ovms_config.h"
-#include "ovms_command.h"
 #include "metrics_standard.h"
 #include "ovms_notify.h"
 #include "ovms_peripherals.h"
-#include "ovms_boot.h"
 #include "ovms_netmanager.h"
+#include "ovms_boot.h"
 
 #include "vehicle_smarted.h"
 
+#undef ABS
+#define ABS(n) (((n) < 0) ? -(n) : (n))
 
 OvmsVehicleSmartED* OvmsVehicleSmartED::GetInstance(OvmsWriter* writer /*=NULL*/) {
   OvmsVehicleSmartED* smart = (OvmsVehicleSmartED*) MyVehicleFactory.ActiveVehicle();
@@ -69,7 +68,7 @@ OvmsVehicleSmartED* OvmsVehicleSmartED::GetInstance(OvmsWriter* writer /*=NULL*/
 OvmsVehicleSmartED::OvmsVehicleSmartED() {
   ESP_LOGI(TAG, "Start Smart ED vehicle module");
   
-  memset(m_vin, 0, sizeof(m_vin));
+  //memset(m_vin, 0, sizeof(m_vin));
   
   // init metrics:
   mt_vehicle_time          = MyMetrics.InitInt("xse.v.display.time", SM_STALE_MIN, 0, Minutes);
@@ -81,58 +80,39 @@ OvmsVehicleSmartED::OvmsVehicleSmartED() {
   mt_bat_energy_used_start = MyMetrics.InitFloat("xse.v.b.energy.used.start", SM_STALE_MID, 0, kWh);
   mt_bat_energy_used_reset = MyMetrics.InitFloat("xse.v.b.energy.used.reset", SM_STALE_MID, 0, kWh);
   mt_pos_odometer_start    = MyMetrics.InitFloat("xse.v.pos.odometer.start", SM_STALE_MID, 0, Kilometers);
+  mt_real_soc              = MyMetrics.InitFloat("xse.v.b.real.soc", SM_STALE_MID, 0, Percentage);
 
-  mt_nlg6_present             = MyMetrics.InitBool("xse.v.nlg6.present", SM_STALE_MIN, false);
-  mt_nlg6_main_volts          = new OvmsMetricVector<float>("xse.v.nlg6.main.volts", SM_STALE_HIGH, Volts);
-  mt_nlg6_main_amps           = new OvmsMetricVector<float>("xse.v.nlg6.main.amps", SM_STALE_HIGH, Amps);
-  mt_nlg6_amps_setpoint       = MyMetrics.InitFloat("xse.v.nlg6.amps.setpoint", SM_STALE_MIN, 0, Amps);
-  mt_nlg6_amps_cablecode      = MyMetrics.InitFloat("xse.v.nlg6.amps.cablecode", SM_STALE_MIN, 0, Amps);
-  mt_nlg6_amps_chargingpoint  = MyMetrics.InitFloat("xse.v.nlg6.amps.chargingpoint", SM_STALE_MIN, 0, Amps);
-  mt_nlg6_dc_current          = MyMetrics.InitFloat("xse.v.nlg6.dc.current", SM_STALE_MIN, 0, Amps);
-  mt_nlg6_dc_hv               = MyMetrics.InitFloat("xse.v.nlg6.dc.hv", SM_STALE_MIN, 0, Volts);
-  mt_nlg6_dc_lv               = MyMetrics.InitFloat("xse.v.nlg6.dc.lv", SM_STALE_MIN, 0, Volts);
-  mt_nlg6_temps               = new OvmsMetricVector<float>("xse.v.nlg6.temps", SM_STALE_HIGH, Celcius);
-  mt_nlg6_temp_reported       = MyMetrics.InitFloat("xse.v.nlg6.temp.reported", SM_STALE_MIN, 0, Celcius);
-  mt_nlg6_temp_socket         = MyMetrics.InitFloat("xse.v.nlg6.temp.socket", SM_STALE_MIN, 0, Celcius);
-  mt_nlg6_temp_coolingplate   = MyMetrics.InitFloat("xse.v.nlg6.temp.coolingplate", SM_STALE_MIN, 0, Celcius);
-  mt_nlg6_pn_hw               = MyMetrics.InitString("xse.v.nlg6.pn.hw", SM_STALE_MIN, 0);
-
-  m_doorlock_port     = 9;
-  m_doorunlock_port   = 8;
-  m_ignition_port     = 7;
-  m_doorstatus_port   = 6;
-  m_range_ideal       = 135;
-  m_egpio_timout      = 5;
-  m_soc_rsoc          = false;
+  mt_ed_eco_accel          = MyMetrics.InitInt("xse.v.display.accel", SM_STALE_MIN, 50, Percentage);
+  mt_ed_eco_const          = MyMetrics.InitInt("xse.v.display.const", SM_STALE_MIN, 50, Percentage);
+  mt_ed_eco_coast          = MyMetrics.InitInt("xse.v.display.coast", SM_STALE_MIN, 50, Percentage);
+  mt_ed_eco_score          = MyMetrics.InitInt("xse.v.display.ecoscore", SM_STALE_MIN, 50, Percentage);
   
+  mt_ed_hv_off_time        = MyMetrics.InitInt("xse.hv.off.time", SM_STALE_MID, 0, Seconds);
+  
+  mt_12v_batt_voltage      = MyMetrics.InitFloat("xse.v.b.12v.voltage", SM_STALE_MID, 0, Volts);
+
   m_candata_timer     = 0;
   m_candata_poll      = 0;
   m_egpio_timer       = 0;
+  
+  m_shutdown_ticker   = 15*60;
   
   // init commands:
   cmd_xse = MyCommandApp.RegisterCommand("xse","SmartED 451 Gen.3");
   cmd_xse->RegisterCommand("recu","Set recu..", xse_recu, "<up/down>",1,1);
   cmd_xse->RegisterCommand("charge","Set charging Timer..", xse_chargetimer, "<hour> <minutes> <on/off>", 3, 3);
   cmd_xse->RegisterCommand("trip", "Show vehicle trip", xse_trip);
+  cmd_xse->RegisterCommand("bmsdiag", "Show BMS diagnostic", xse_bmsdiag);
+  cmd_xse->RegisterCommand("rptdata", "Show BMS RPTdata", xse_RPTdata);
   
-  // BMS configuration:
-  BmsSetCellArrangementVoltage(93, 1);
-  BmsSetCellArrangementTemperature(3, 1);
-  BmsSetCellLimitsVoltage(2.0, 5.0);
-  BmsSetCellLimitsTemperature(-39, 200);
-  BmsSetCellDefaultThresholdsVoltage(0.020, 0.030);
-  BmsSetCellDefaultThresholdsTemperature(2.0, 3.0);
-  
-  RestoreStatus();
+  MyConfig.RegisterParam("xse", "Smart ED", true, true);
+  ConfigChanged(NULL);
   
   RegisterCanBus(1, CAN_MODE_ACTIVE, CAN_SPEED_500KBPS);
   RegisterCanBus(2, CAN_MODE_ACTIVE, CAN_SPEED_500KBPS);
   
   // init OBD2 poller:
   ObdInitPoll();
-  
-  MyConfig.RegisterParam("xse", "Smart ED", true, true);
-  ConfigChanged(NULL);
 
 #ifdef CONFIG_OVMS_COMP_WEBSERVER
   WebInit();
@@ -141,7 +121,7 @@ OvmsVehicleSmartED::OvmsVehicleSmartED() {
 
 OvmsVehicleSmartED::~OvmsVehicleSmartED() {
   ESP_LOGI(TAG, "Stop Smart ED vehicle module");
-    
+  
 #ifdef CONFIG_OVMS_COMP_WEBSERVER
   WebDeInit();
 #endif
@@ -152,9 +132,9 @@ OvmsVehicleSmartED::~OvmsVehicleSmartED() {
  */
 void OvmsVehicleSmartED::ConfigChanged(OvmsConfigParam* param) {
   if (param && param->GetName() != "xse")
-      return;
-
-  ESP_LOGI(TAG, "Smart ED reload configuration");
+    return;
+  
+  ESP_LOGD(TAG, "Smart ED reload configuration");
   
   m_doorlock_port   = MyConfig.GetParamValueInt("xse", "doorlock.port", 9);
   m_doorunlock_port = MyConfig.GetParamValueInt("xse", "doorunlock.port", 8);
@@ -169,19 +149,22 @@ void OvmsVehicleSmartED::ConfigChanged(OvmsConfigParam* param) {
   m_lock_state      = MyConfig.GetParamValueBool("xse", "lockstate", false);
   m_reset_trip      = MyConfig.GetParamValueBool("xse", "reset.trip.charge", false);
   m_notify_trip     = MyConfig.GetParamValueBool("xse", "notify.trip", true);
+  m_gpio_highlow    = MyConfig.GetParamValueBool("xse", "gpio_highlow", false);
   
   m_preclima_time   = MyConfig.GetParamValueInt("xse", "preclimatime", 15);
   
   m_reboot_time     = MyConfig.GetParamValueInt("xse", "reboot", 0);
+  m_reboot          = MyConfig.GetParamValueBool("xse", "doreboot", false);
+  
+  m_auto_set_recu   = MyConfig.GetParamValueBool("xse", "autosetrecu", false);
   
   StandardMetrics.ms_v_charge_limit_soc->SetValue((float) MyConfig.GetParamValueInt("xse", "suffsoc", 0), Percentage );
   StandardMetrics.ms_v_charge_limit_range->SetValue((float) MyConfig.GetParamValueInt("xse", "suffrange", 0), Kilometers );
-
+  
 #ifdef CONFIG_OVMS_COMP_MAX7317
-  MyPeripherals->m_max7317->Output(m_doorlock_port, 0);
-  MyPeripherals->m_max7317->Output(m_doorunlock_port, 0);
+  MyPeripherals->m_max7317->Output(m_doorlock_port, (m_gpio_highlow ? 1 : 0));
+  MyPeripherals->m_max7317->Output(m_doorunlock_port, (m_gpio_highlow ? 1 : 0));
   MyPeripherals->m_max7317->Output(m_ignition_port, 0);
-  MyPeripherals->m_max7317->Output((uint8_t)m_doorstatus_port,(uint8_t)1); // set port to input
 #endif
 }
 
@@ -190,9 +173,6 @@ void OvmsVehicleSmartED::vehicle_smarted_car_on(bool isOn) {
     // Log once that car is being turned on
     ESP_LOGI(TAG,"CAR IS ON");
     StandardMetrics.ms_v_env_awake->SetValue(isOn);
-    
-    // charging 12v start
-    StandardMetrics.ms_v_env_charging12v->SetValue(true);
     
     if (m_enable_write) PollSetState(2);
 
@@ -209,11 +189,11 @@ void OvmsVehicleSmartED::vehicle_smarted_car_on(bool isOn) {
     ESP_LOGI(TAG,"CAR IS OFF");
     StandardMetrics.ms_v_env_awake->SetValue(isOn);
     
-    // charging 12v stop
-    if (!StandardMetrics.ms_v_charge_inprogress->AsBool())
-      StandardMetrics.ms_v_env_charging12v->SetValue(false);
-    
-    if (m_enable_write) PollSetState(1);
+    if (mt_c_active->AsBool()) {
+      if (m_enable_write) PollSetState(3);
+    } else {
+      if (m_enable_write) PollSetState(1);
+    }
     if (StandardMetrics.ms_v_pos_trip->AsFloat(0) > 0.1 && m_notify_trip)
 			NotifyTrip();
   }
@@ -330,12 +310,9 @@ void OvmsVehicleSmartED::HandleChargingStatus() {
   if (port) {
     if (status) {
       // The car is charging
-      //StandardMetrics.ms_v_env_charging12v->SetValue(true);
       if (!StandardMetrics.ms_v_charge_inprogress->AsBool()) {
         if (!isCharging) {
           isCharging = true;
-          // charging 12v start
-          StandardMetrics.ms_v_env_charging12v->SetValue(true);
           // Reset charge kWh
           StandardMetrics.ms_v_charge_kwh->SetValue(0);
           // Reset trip values
@@ -346,6 +323,8 @@ void OvmsVehicleSmartED::HandleChargingStatus() {
             StandardMetrics.ms_v_pos_trip->SetValue(0);
           }
         }
+        // set Poll state charging
+        if (m_enable_write) PollSetState(3);
         
         StandardMetrics.ms_v_charge_pilot->SetValue(true);
         StandardMetrics.ms_v_charge_inprogress->SetValue(true);
@@ -358,12 +337,12 @@ void OvmsVehicleSmartED::HandleChargingStatus() {
       // The car is not charging
       if (StandardMetrics.ms_v_charge_inprogress->AsBool()) {
         // The charge has completed/stopped
+        if (m_enable_write) PollSetState(1);
         StandardMetrics.ms_v_charge_pilot->SetValue(false);
         StandardMetrics.ms_v_charge_inprogress->SetValue(false);
         StandardMetrics.ms_v_charge_mode->SetValue("standard");
         StandardMetrics.ms_v_charge_type->SetValue("type2");
         // charging 12v stop
-        StandardMetrics.ms_v_env_charging12v->SetValue(false);
         if (StandardMetrics.ms_v_bat_soc->AsInt() < 95) {
           // Assume the charge was interrupted
           ESP_LOGI(TAG,"Car charge session was interrupted");
@@ -376,7 +355,6 @@ void OvmsVehicleSmartED::HandleChargingStatus() {
           StandardMetrics.ms_v_charge_substate->SetValue("onrequest");
         }
       }
-      //StandardMetrics.ms_v_env_charging12v->SetValue(false);
     }
   } else if (isCharging) {
     isCharging = false;
@@ -387,13 +365,11 @@ void OvmsVehicleSmartED::HandleChargingStatus() {
 }
 
 void OvmsVehicleSmartED::IncomingFrameCan1(CAN_frame_t* p_frame) {
-    
-  if (m_candata_poll != 1 && mt_hv_active) {
+  if (m_candata_poll != 1) {
     ESP_LOGI(TAG,"Car has woken (CAN bus activity)");
     mt_bus_awake->SetValue(true);
     //StandardMetrics.ms_v_env_awake->SetValue(true);
     m_candata_poll = 1;
-    //PollSetState(1);
     if (m_enable_write) PollSetState(1);
   }
   
@@ -449,11 +425,22 @@ void OvmsVehicleSmartED::IncomingFrameCan1(CAN_frame_t* p_frame) {
       0x518 01 4e 00 00 [f8 7f] c8 b4 // Charge duration? 
       */
       if (m_soc_rsoc) {
-        StandardMetrics.ms_v_bat_soh->SetValue((float) (d[7]/2.0));
+        mt_real_soc->SetValue((float) (d[7]/2.0));
       } else {
         StandardMetrics.ms_v_bat_soc->SetValue((float) (d[7]/2.0));
       }
       StandardMetrics.ms_v_charge_climit->SetValue(d[1]/2.0);
+      switch(d[2]) {
+        case 0x20: // D-
+          StandardMetrics.ms_v_env_drivemode->SetValue(0);
+          break;
+        case 0x40: // D
+          StandardMetrics.ms_v_env_drivemode->SetValue(1);
+          break;
+        case 0x60: // D+
+          StandardMetrics.ms_v_env_drivemode->SetValue(2);
+          break;
+      }
       break;
     }
     case 0x2D5: //realSOC
@@ -468,9 +455,9 @@ void OvmsVehicleSmartED::IncomingFrameCan1(CAN_frame_t* p_frame) {
       if (m_soc_rsoc) {
         StandardMetrics.ms_v_bat_soc->SetValue(rsoc, Percentage);
       } else {
-        StandardMetrics.ms_v_bat_soh->SetValue(rsoc, Percentage);
+        mt_real_soc->SetValue(rsoc, Percentage);
       }
-      StandardMetrics.ms_v_bat_cac->SetValue((DEFAULT_BATTERY_AMPHOURS * rsoc) / 100, AmpHours);
+      // StandardMetrics.ms_v_bat_cac->SetValue((DEFAULT_BATTERY_AMPHOURS * rsoc) / 100, AmpHours);
       break;
     }
     case 0x508: //HV ampere and charging yes/no
@@ -501,7 +488,7 @@ void OvmsVehicleSmartED::IncomingFrameCan1(CAN_frame_t* p_frame) {
       float LV;
       LV = ((float) d[3]);
       LV = LV / 10.0;
-      StandardMetrics.ms_v_bat_12v_voltage->SetValue(LV, Volts);
+      mt_12v_batt_voltage->SetValue(LV, Volts);
       break;
     }
     case 0x412: //ODO
@@ -583,11 +570,10 @@ void OvmsVehicleSmartED::IncomingFrameCan1(CAN_frame_t* p_frame) {
     }
     case 0x3F2: //Eco display
     {
-      /*myMetrics.->ECO_accel                             = rxBuf[0] >> 1;
-       myMetrics.->ECO_const                               = rxBuf[1] >> 1;
-       myMetrics.->ECO_coast                               = rxBuf[2] >> 1;
-       myMetrics.->ECO_total                               = rxBuf[3] >> 1;
-       */
+      mt_ed_eco_accel->SetValue(d[0] >> 1);
+      mt_ed_eco_const->SetValue(d[1] >> 1);
+      mt_ed_eco_coast->SetValue(d[2] >> 1);
+      mt_ed_eco_score->SetValue(d[3] >> 1);
       break;
     }
     case 0x418: //gear shift
@@ -637,6 +623,7 @@ void OvmsVehicleSmartED::IncomingFrameCan1(CAN_frame_t* p_frame) {
     case 0x3D7: //HV Status
     {   //HV active
       mt_hv_active->SetValue(d[0]);
+      StandardMetrics.ms_v_env_charging12v->SetValue(d[0]);
       break;
     }
     case 0x312: //Powerflow from/to Engine 
@@ -648,15 +635,20 @@ void OvmsVehicleSmartED::IncomingFrameCan1(CAN_frame_t* p_frame) {
       */
       break;
     }
+    default: {
+      /*
+      if(p_frame->MsgID == 0x7EF)
+        ESP_LOGD(TAG, "%03x 8 %02x %02x %02x %02x %02x %02x %02x %02x", p_frame->MsgID, d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]);
+      if(p_frame->MsgID == 0x483)
+        ESP_LOGD(TAG, "%03x 8 %02x %02x %02x %02x %02x %02x %02x %02x", p_frame->MsgID, d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]);
+      */
+      break;
+    }
   }
 }
 
 void OvmsVehicleSmartED::IncomingFrameCan2(CAN_frame_t* p_frame) {
-  //uint8_t *d = p_frame->data.u8;
   
-  switch (p_frame->MsgID) {
-    
-  }
 }
 /**
  * Update derived energy metrics while driving
@@ -680,6 +672,13 @@ void OvmsVehicleSmartED::HandleEnergy() {
   }
 }
 
+void OvmsVehicleSmartED::CalculateEfficiency() {
+  float consumption = 0;
+  if (StdMetrics.ms_v_pos_speed->AsFloat() >= 5)
+    consumption = ABS(StdMetrics.ms_v_bat_power->AsFloat(0, Watts)) / StdMetrics.ms_v_pos_speed->AsFloat();
+  StdMetrics.ms_v_bat_consumption->SetValue((StdMetrics.ms_v_bat_consumption->AsFloat() * 4 + consumption) / 5);
+}
+
 void OvmsVehicleSmartED::Ticker1(uint32_t ticker) {
   if (m_candata_timer > 0) {
     if (--m_candata_timer == 0) {
@@ -697,6 +696,10 @@ void OvmsVehicleSmartED::Ticker1(uint32_t ticker) {
   HandleEnergy();
   if (mt_bus_awake->AsBool())
     HandleChargingStatus();
+  if (mt_hv_active->AsBool())
+    mt_ed_hv_off_time->SetValue(0);
+  else
+    mt_ed_hv_off_time->SetValue(mt_ed_hv_off_time->AsInt() + 1);
   
   // Handle Tripcounter
   if (mt_pos_odometer_start->AsFloat(0) == 0 && StandardMetrics.ms_v_pos_odometer->AsFloat(0) > 0.0) {
@@ -706,22 +709,16 @@ void OvmsVehicleSmartED::Ticker1(uint32_t ticker) {
     StandardMetrics.ms_v_pos_trip->SetValue(StandardMetrics.ms_v_pos_odometer->AsFloat(0) - mt_pos_odometer_start->AsFloat(0));
   }
   
-  // Handle v2Server connection
-  if (StandardMetrics.ms_s_v2_connected->AsBool() || m_reboot_time == 0) {
-    m_reboot_ticker = m_reboot_time * 60; // set reboot ticker
-  }
-  else if (m_reboot_ticker > 0 && --m_reboot_ticker == 0) {
-    SaveStatus();
-    MyNetManager.RestartNetwork();
-    m_reboot_ticker = m_reboot_time * 60;
-    //MyBoot.Restart(); // restart Module
-  }
+  RestartNetwork();
+  ShutDown();
 }
 
 void OvmsVehicleSmartED::Ticker10(uint32_t ticker) {
   HandleCharging();
+  AutoSetRecu();
 #ifdef CONFIG_OVMS_COMP_MAX7317
   if(m_lock_state) {
+    MyPeripherals->m_max7317->Output((uint8_t)m_doorstatus_port,(uint8_t)1); // set port to input
     int level = MyPeripherals->m_max7317->Input((uint8_t)m_doorstatus_port);
     StandardMetrics.ms_v_env_locked->SetValue(level == 1 ? false : true);
   }
@@ -733,6 +730,7 @@ void OvmsVehicleSmartED::Ticker10(uint32_t ticker) {
 }
 
 void OvmsVehicleSmartED::Ticker60(uint32_t ticker) {
+  if (StandardMetrics.ms_v_bat_soc->AsFloat(0) == 0) RestoreStatus();
 #ifdef CONFIG_OVMS_COMP_MAX7317
   if (m_egpio_timer > 0) {
     if (--m_egpio_timer == 0) {
@@ -742,6 +740,64 @@ void OvmsVehicleSmartED::Ticker60(uint32_t ticker) {
     }
   }
 #endif
+}
+
+void OvmsVehicleSmartED::RestartNetwork() {
+  // Handle v2Server connection
+  if (StandardMetrics.ms_s_v2_connected->AsBool() || m_reboot_time == 0) {
+    m_reboot_ticker = m_reboot_time * 60; // set reboot ticker
+  }
+  else if (m_reboot_ticker > 0 && --m_reboot_ticker == 0) {
+    SaveStatus();
+    if (m_reboot) {
+      MyBoot.Restart();
+    } else {
+      MyNetManager.RestartNetwork();
+    }
+    m_reboot_ticker = m_reboot_time * 60;
+  }
+}
+
+void OvmsVehicleSmartED::AutoSetRecu() {
+  if (StandardMetrics.ms_v_env_on->AsBool() && m_auto_set_recu) {
+    if (StandardMetrics.ms_v_env_drivemode->AsInt(1) != 2) {
+      while(StandardMetrics.ms_v_env_drivemode->AsInt(1) != 2) {
+        CommandSetRecu(true);
+        vTaskDelay(50 / portTICK_PERIOD_MS);
+      }
+      MyEvents.SignalEvent("v-smarted.xse.recu.up",NULL);
+    }
+  }
+}
+
+void OvmsVehicleSmartED::ShutDown() {
+  float volt = StandardMetrics.ms_v_bat_12v_voltage->AsFloat();
+  
+  if (volt > 0 && volt > 10.5) {
+    m_shutdown_ticker = 15 * 60;
+  } 
+  else if (volt > 0 && volt < 10.5 && --m_shutdown_ticker == 0) {
+    ESP_LOGW(TAG,"Powering off");
+    MyEvents.SignalEvent("v-smarted.power.off",NULL);
+    MyNotify.NotifyString("alert", "v-smarted.power.off", "Shutting down OVMS to prevent Battery drain");
+    vTaskDelay(500 / portTICK_PERIOD_MS); // make sure all notifications all transmitted before powerring down
+#ifdef CONFIG_OVMS_COMP_WIFI
+    MyPeripherals->m_esp32wifi->SetPowerMode(Off);
+#endif
+#ifdef CONFIG_OVMS_COMP_MODEM_SIMCOM
+    MyPeripherals->m_simcom->SetPowerMode(Off);
+#endif
+#ifdef CONFIG_OVMS_COMP_EXTERNAL_SWCAN
+    MyPeripherals->m_mcp2515_swcan->SetPowerMode(Off);
+#endif
+#ifdef CONFIG_OVMS_COMP_ESP32CAN
+    MyPeripherals->m_esp32can->SetPowerMode(Off);
+#endif
+#ifdef CONFIG_OVMS_COMP_EXT12V
+    MyPeripherals->m_ext12v->SetPowerMode(Off);
+#endif
+    MyPeripherals->m_esp32->SetPowerMode(Off);
+  }
 }
 
 /**
@@ -767,6 +823,18 @@ bool OvmsVehicleSmartED::SetFeature(int key, const char *value)
     case 26:
       MyConfig.SetParamValue("xse", "preclimatime", value);
       return true;
+    case 29:
+    {
+      int bits = atoi(value);
+      MyConfig.SetParamValueBool("xse", "doreboot",  (bits& 1)!=0);
+      return true;
+    }
+    case 30:
+    {
+      int bits = atoi(value);
+      MyConfig.SetParamValueBool("xse", "autosetrecu",  (bits& 1)!=0);
+      return true;
+    }
     default:
       return OvmsVehicle::SetFeature(key, value);
   }
@@ -793,17 +861,31 @@ const std::string OvmsVehicleSmartED::GetFeature(int key)
     }
     case 26:
       return MyConfig.GetParamValue("xse", "preclimatime", STR(15));
+    case 29:
+    {
+      int bits = ( MyConfig.GetParamValueBool("xse", "doreboot",  false) ?  1 : 0);
+      char buf[4];
+      sprintf(buf, "%d", bits);
+      return std::string(buf);
+    }
+    case 30:
+    {
+      int bits = ( MyConfig.GetParamValueBool("xse", "autosetrecu",  false) ?  1 : 0);
+      char buf[4];
+      sprintf(buf, "%d", bits);
+      return std::string(buf);
+    }
     default:
       return OvmsVehicle::GetFeature(key);
   }
 }
 
 class OvmsVehicleSmartEDInit {
-    public:
-    OvmsVehicleSmartEDInit();
+  public:
+  OvmsVehicleSmartEDInit();
 } MyOvmsVehicleSmartEDInit __attribute__ ((init_priority (9000)));
 
 OvmsVehicleSmartEDInit::OvmsVehicleSmartEDInit() {
-    ESP_LOGI(TAG, "Registering Vehicle: SMART ED (9000)");
-    MyVehicleFactory.RegisterVehicle<OvmsVehicleSmartED>("SE", "Smart ED 3.Gen");
+  ESP_LOGI(TAG, "Registering Vehicle: SMART ED (9000)");
+  MyVehicleFactory.RegisterVehicle<OvmsVehicleSmartED>("SE", "Smart ED 3.Gen");
 }
