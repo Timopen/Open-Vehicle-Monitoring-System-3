@@ -357,8 +357,8 @@ void OvmsVehicleKiaNiroEv::vehicle_kianiroev_car_on(bool isOn)
   {
 	kn_shift_bits.CarOn=isOn;
 	StdMetrics.ms_v_env_awake->SetValue(isOn);
-  uint64_t kia_esp_time_now = esp_log_timestamp();
-  //uint64_t timestring = StdMetrics.ms_m_timeutc->AsInt()*(uint64_t)1000;
+  //uint64_t kia_esp_time_now = esp_log_timestamp();
+  uint64_t kia_esp_time_now = StdMetrics.ms_m_timeutc->AsInt()*(uint64_t)1000;
   char ch_timestring[21]; // enough to hold all numbers up to 64-bits
   sprintf(ch_timestring, "%llu", kia_esp_time_now);
   if (isOn)
@@ -798,8 +798,8 @@ uint16_t OvmsVehicleKiaNiroEv::calcMinutesRemaining(float target)
     void OvmsVehicleKiaNiroEv::HandleTripData()
       	{
 
-          //uint64_t timeStamp = StdMetrics.ms_m_timeutc->AsInt()*(uint64_t)1000;
-          uint64_t kia_esp_time_now = esp_log_timestamp();
+          uint64_t kia_esp_time_now = StdMetrics.ms_m_timeutc->AsInt()*(uint64_t)1000;
+          //uint64_t kia_esp_time_now = esp_log_timestamp();
           float Lat = StdMetrics.ms_v_pos_latitude->AsFloat();
           float Lng = StdMetrics.ms_v_pos_longitude->AsFloat();
           float Speed = StdMetrics.ms_v_pos_speed->AsFloat();
